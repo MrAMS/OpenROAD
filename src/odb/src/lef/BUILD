@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2025, The OpenROAD Authors
 
-load("@rules_hdl//dependency_support/org_gnu_bison:bison.bzl", "genyacc")
+load("@rules_bison//bison:bison.bzl", "bison")
 
 package(
     default_visibility = ["//:__subpackages__"],
@@ -70,12 +70,23 @@ cc_library(
     includes = ["lef"],
 )
 
-genyacc(
+genrule(
     name = "lef_bison",
-    src = "lef/lef.y",
-    header_out = "lef/lef_parser.hpp",
-    prefix = "lefyy",
-    source_out = "lef/lef_parser.cpp",
+    srcs = ["lef/lef.y"],
+    outs = [
+        "lef/lef_parser.cpp",
+        "lef/lef_parser.hpp",
+    ],
+    cmd = """
+    M4=$(M4) $(BISON) \
+      --defines=$(@D)/lef/lef_parser.hpp \
+      --output-file=$(@D)/lef/lef_parser.cpp \
+      --name-prefix=lefyy $<
+    """,
+    toolchains = [
+        "@rules_bison//bison:current_bison_toolchain",
+        "@rules_m4//m4:current_m4_toolchain",
+    ],
 )
 
 cc_library(
