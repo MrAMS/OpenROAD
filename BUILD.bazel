@@ -2,8 +2,8 @@
 # Copyright (c) 2025-2025, The OpenROAD Authors
 
 load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
-load("@rules_hdl//dependency_support/com_github_westes_flex:flex.bzl", "genlex")
-load("@rules_hdl//dependency_support/org_gnu_bison:bison.bzl", "genyacc")
+load("//bazel:yacclex_helpers.bzl", "genyacc", "genlex")
+
 load(
     "//bazel:build_helper.bzl",
     "OPENROAD_BINARY_SRCS_WITHOUT_MAIN",

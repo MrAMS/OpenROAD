@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2025, The OpenROAD Authors
 
-load("@rules_bison//bison:bison.bzl", "bison")
+load("//bazel:yacclex_helpers.bzl", "genyacc")
 
 package(
     default_visibility = ["//:__subpackages__"],
@@ -91,23 +91,12 @@ cc_library(
     includes = ["def"],
 )
 
-genrule(
+genyacc(
     name = "def_bison",
-    srcs = ["def/def.y"],
-    outs = [
-        "def/def_parser.cpp",
-        "def/def_parser.hpp",
-    ],
-    cmd = """
-    M4=$(M4) $(BISON) \
-      --defines=$(@D)/def/def_parser.hpp \
-      --output-file=$(@D)/def/def_parser.cpp \
-      --name-prefix=defyy $<
-    """,
-    toolchains = [
-        "@rules_bison//bison:current_bison_toolchain",
-        "@rules_m4//m4:current_m4_toolchain",
-    ],
+    src = "def/def.y",
+    header_out = "def/def_parser.hpp",
+    prefix = "defyy",
+    source_out = "def/def_parser.cpp",
 )
 
 cc_library(

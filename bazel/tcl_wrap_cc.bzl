@@ -9,6 +9,9 @@ cc_library or cc_binary rules. See below for expected usage.
 cc_library(srcs=[":tcl_foo"])
 tcl_wrap_cc(name = "tcl_foo", srcs=["exception.i"],...)
 """
+
+load("@bazel_skylib//lib:paths.bzl", "paths")
+
 TclSwigInfo = provider("TclSwigInfo for taking dependencies on other swig info rules", fields = ["transitive_srcs", "includes", "swig_options"])
 
 def _get_transative_srcs(srcs, deps):
@@ -49,7 +52,7 @@ def _tcl_wrap_cc_impl(ctx):
     if ctx.label.package:
         include_root_directory = ctx.label.package + "/"
 
-    src_inputs = _get_transative_srcs(ctx.files.srcs + ctx.files.root_swig_src, ctx.attr.deps)
+    src_inputs = _get_transative_srcs(ctx.files.srcs + ctx.files.root_swig_src + ctx.files._swig_lib, ctx.attr.deps)
     includes_paths = _get_transative_includes(
         ["{}{}".format(include_root_directory, include) for include in ctx.attr.swig_includes],
         ctx.attr.deps,
@@ -72,12 +75,14 @@ def _tcl_wrap_cc_impl(ctx):
     args.add(output_file.path)
     args.add(root_file.path)
 
+    swig_lib = {"SWIG_LIB": paths.dirname(ctx.files._swig_lib[0].path)}
     ctx.actions.run(
         outputs = [output_file],
         inputs = src_inputs,
         arguments = [args],
-        tools = ctx.files._swig,
-        executable = ([file for file in ctx.files._swig if file.basename == "swig"][0]),
+        env = swig_lib,
+        executable = ctx.executable._swig,
+        mnemonic = "SwigCompile",
     )
     return [
         DefaultInfo(files = depset([output_file])),
@@ -127,9 +132,12 @@ tcl_wrap_cc = rule(
             doc = "args to pass directly to the swig binary",
         ),
         "_swig": attr.label(
-            default = "@org_swig//:swig_stable",
-            allow_files = True,
+            default = "@swig//:swig",
+            executable = True,
             cfg = "exec",
+        ),
+        "_swig_lib": attr.label(
+            default = Label("@swig//:lib_tcl"),
         ),
     },
 )

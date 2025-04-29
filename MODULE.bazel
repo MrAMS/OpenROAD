@@ -10,17 +10,19 @@ bazel_dep(name = "bazel_skylib", version = "1.7.1")
 bazel_dep(name = "rules_m4", version = "0.3")
 bazel_dep(name = "rules_flex", version = "0.4")
 bazel_dep(name = "rules_bison", version = "0.4")
-bison = use_extension(
-    "@rules_bison//bison/extensions:bison_repository_ext.bzl",
-    "bison_repository_ext",
+bazel_dep(name = "tcl", version = "8.6.10", repo_name = "tk_tcl")
+git_override(
+    module_name = "tcl",
+    commit = "4ca5c6850eae1a24b611a76a68eff0b31c840823",
+    remote = "https://github.com/amorphic-io/tcl.git",
 )
-bison.repository(
-    name = "bison",
-    version = "3.3.2",
-    extra_copts = ["-O3"],
+
+bazel_dep(name = "swig", version = "4.3.0")
+git_override(
+    module_name = "swig",
+    commit = "52ed25274e9042611bda40c42e48aae8b6748686",
+    remote = "https://github.com/amorphic-io/swig.git",
 )
-use_repo(bison, "bison")
-register_toolchains("@bison//:toolchain")
 
 # The current rules_cc 0.1.1 hardcodes script locations to `#!/bin/bash`
 # instead of using `#!/usr/bin/env bash`.
@@ -32,6 +34,10 @@ git_override(
     commit = "d74915024017250e46d95e91a3defc34174effe0",
     remote = "https://github.com/bazelbuild/rules_cc",
 )
+
+bazel_dep(name = "readline", version = "8.2.bcr.1", repo_name = "org_gnu_readline")
+bazel_dep(name = "abc", version = "0.0.0-20250408-yosyshq", repo_name = "edu_berkeley_abc")
+bazel_dep(name = "ncurses", version = "6.4.20221231.bcr.7", repo_name = "net_invisible_island_ncurses")
 
 # Not all boost libs are available at the latest version yet, so use a
 # slightly older one that has all we need.
