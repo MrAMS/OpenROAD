@@ -67,19 +67,20 @@ OPENROAD_LIBRARY_DEPS = [
     "@boost.property_tree",
     "@boost.stacktrace",
     "@boost.thread",
-    "@com_github_quantamhd_lemon//:lemon",
-    "@edu_berkeley_abc//:abc-lib",
+    "@lemon//:lemon",
+    "@abc",
     "@eigen",
     "@or-tools//ortools/base:base",
     "@or-tools//ortools/linear_solver:linear_solver",
     "@or-tools//ortools/linear_solver:linear_solver_cc_proto",
     "@or-tools//ortools/sat:cp_model",
-    "@org_llvm_openmp//:openmp",
+    "@llvm-project//openmp",
     "@spdlog",
     "@tk_tcl//:tcl",
 ]
 
 OPENROAD_COPTS = [
+    "-fopenmp",
     "-fexceptions",
     "-ffp-contract=off",  # Needed for floating point stability.
     "-Wno-error",
