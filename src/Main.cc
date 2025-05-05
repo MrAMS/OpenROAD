@@ -247,7 +247,7 @@ int main(int argc, char* argv[])
     std::cerr << error << std::endl;
     return 1;
   }
-  std::string path = runfiles->Rlocation("tk_tcl/library/");
+  std::string path = runfiles->Rlocation("tcl/library/");
   setenv("TCL_LIBRARY", path.c_str(), 0);
 #endif
 

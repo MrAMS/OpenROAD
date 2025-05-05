@@ -10,7 +10,7 @@ bazel_dep(name = "bazel_skylib", version = "1.7.1")
 bazel_dep(name = "rules_m4", version = "0.3")
 bazel_dep(name = "rules_flex", version = "0.4")
 bazel_dep(name = "rules_bison", version = "0.4")
-bazel_dep(name = "tcl", version = "8.6.10", repo_name = "tk_tcl")
+bazel_dep(name = "tcl", version = "8.6.10")
 git_override(
     module_name = "tcl",
     commit = "4ca5c6850eae1a24b611a76a68eff0b31c840823",

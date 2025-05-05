@@ -69,7 +69,7 @@ cc_library(
         "@boost.regex",
         "@boost.spirit",
         "@spdlog",
-        "@tk_tcl//:tcl",
+        "@tcl//:tcl",
         "@zlib",
     ],
 )

@@ -47,7 +47,7 @@ tcl_encode_sta = rule(
             allow_single_file = True,
         ),
         "_tclsh": attr.label(
-            default = "@tk_tcl//:tclsh",
+            default = "@tcl//:tclsh",
             executable = True,
             cfg = "exec",
         ),

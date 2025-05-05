@@ -76,7 +76,7 @@ OPENROAD_LIBRARY_DEPS = [
     "@or-tools//ortools/sat:cp_model",
     "@llvm-project//openmp",
     "@spdlog",
-    "@tk_tcl//:tcl",
+    "@tcl//:tcl",
 ]
 
 OPENROAD_COPTS = [
@@ -126,7 +126,7 @@ cc_binary(
         "//src/odb",
         "//src/utl",
         "@rules_cc//cc/runfiles",
-        "@tk_tcl//:tcl",
+        "@tcl//:tcl",
     ],
 )
 
@@ -816,7 +816,7 @@ filegroup(
     srcs = [
         "src/Exception.i",
     ],
-    visibility = ["@//:__subpackages__"],
+    visibility = ["//:__subpackages__"],
 )
 
 filegroup(
@@ -1120,7 +1120,7 @@ cc_binary(
     visibility = ["//visibility:public"],
     deps = [
         ":opensta_lib",
-        "@tk_tcl//:tcl",
+        "@tcl//:tcl",
     ],
 )
 
@@ -1206,7 +1206,7 @@ cc_library(
         "@cudd",
         "@eigen",
         "@rules_flex//flex:current_flex_toolchain",
-        "@tk_tcl//:tcl",
+        "@tcl//:tcl",
         "@zlib",
     ],
 )

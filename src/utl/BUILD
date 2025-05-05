@@ -70,7 +70,7 @@ cc_library(
         "@boost.beast",
         "@boost.core",
         "@spdlog",
-        "@tk_tcl//:tcl",
+        "@tcl//:tcl",
     ],
 )
 

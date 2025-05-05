@@ -49,9 +49,10 @@ def _tcl_wrap_cc_impl(ctx):
     output_file = ctx.actions.declare_file(outfile_name)
 
     include_root_directory = ""
+    if ctx.label.workspace_root:
+        include_root_directory += ctx.label.workspace_root + "/"
     if ctx.label.package:
-        include_root_directory = ctx.label.package + "/"
-
+        include_root_directory += ctx.label.package + "/"
     src_inputs = _get_transative_srcs(ctx.files.srcs + ctx.files.root_swig_src + ctx.files._swig_lib, ctx.attr.deps)
     includes_paths = _get_transative_includes(
         ["{}{}".format(include_root_directory, include) for include in ctx.attr.swig_includes],
