@@ -85,6 +85,9 @@ int cmd_argc;
 char** cmd_argv;
 static const char* log_filename = nullptr;
 static const char* metrics_filename = nullptr;
+static bool quiet_logs = false;
+static bool silent_logs = false;
+
 static bool no_settings = false;
 static bool minimize = false;
 
@@ -279,6 +282,14 @@ int main(int argc, char* argv[])
     remove(metrics_filename);
   }
 
+  if (findCmdLineFlag(argc, argv, "-quiet")) {
+    quiet_logs = true;
+  }
+
+  if (findCmdLineFlag(argc, argv, "-silent")) {
+    silent_logs = true;
+  }
+
   no_settings = findCmdLineFlag(argc, argv, "-no_settings");
   minimize = findCmdLineFlag(argc, argv, "-minimize");
 
@@ -294,7 +305,7 @@ int main(int argc, char* argv[])
     the_tech_and_design.design
         = std::make_unique<ord::Design>(the_tech_and_design.tech.get());
     ord::OpenRoad::setOpenRoad(the_tech_and_design.design->getOpenRoad());
-    ord::initOpenRoad(interp, log_filename, metrics_filename);
+    ord::initOpenRoad(interp, log_filename, metrics_filename, quiet_logs, silent_logs);
     if (!findCmdLineFlag(cmd_argc, cmd_argv, "-no_splash")) {
       showSplash();
     }
@@ -463,7 +474,7 @@ static int tclAppInit(int& argc,
     }
 #endif
 
-    ord::initOpenRoad(interp, log_filename, metrics_filename);
+    ord::initOpenRoad(interp, log_filename, metrics_filename, quiet_logs, silent_logs);
 
     bool no_splash = findCmdLineFlag(argc, argv, "-no_splash");
     if (!no_splash) {
@@ -575,6 +586,8 @@ static void showUsage(const char* prog, const char* init_filename)
   printf("  -log <file_name>      write a log in <file_name>\n");
   printf(
       "  -metrics <file_name>  write metrics in <file_name> in JSON format\n");
+  printf("  -quiet                only emit warnings and above to the console\n");
+  printf("  -silent               do not emit logs to console.\n");
   printf("  cmd_file              source cmd_file\n");
 }
 

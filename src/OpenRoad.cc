@@ -139,19 +139,23 @@ void OpenRoad::setOpenRoad(OpenRoad* app, bool reinit_ok)
 
 void initOpenRoad(Tcl_Interp* interp,
                   const char* log_filename,
-                  const char* metrics_filename)
+                  const char* metrics_filename,
+                  bool quiet_logs,
+                  bool silent_logs)
 {
-  OpenRoad::openRoad()->init(interp, log_filename, metrics_filename);
+  OpenRoad::openRoad()->init(interp, log_filename, metrics_filename, quiet_logs, silent_logs);
 }
 
 void OpenRoad::init(Tcl_Interp* tcl_interp,
                     const char* log_filename,
-                    const char* metrics_filename)
+                    const char* metrics_filename,
+                    bool quiet_logs,
+                    bool silent_logs)
 {
   tcl_interp_ = tcl_interp;
 
   // Make components.
-  logger_ = makeLogger(log_filename, metrics_filename);
+  logger_ = makeLogger(log_filename, metrics_filename, quiet_logs, silent_logs);
   db_->setLogger(logger_);
   sta_ = makeDbSta();
   verilog_network_ = makeDbVerilogNetwork();

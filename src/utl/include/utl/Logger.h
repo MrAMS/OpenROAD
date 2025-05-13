@@ -82,12 +82,19 @@ enum ToolId
       SIZE  // the number of tools, do not put anything after this
 };
 
+enum LogMode {
+  FULL,
+  QUIET,
+  SILENT,
+};
+
 class Logger
 {
  public:
   // Use nullptr if messages or metrics are not logged to a file.
   Logger(const char* filename = nullptr,
-         const char* metrics_filename = nullptr);
+         const char* metrics_filename = nullptr,
+         const bool quiet_logs = false, const bool silent_logs = false);
   Logger(const Logger& logger) = delete;
   ~Logger();
   static ToolId findToolId(const char* tool_name);
@@ -95,9 +102,13 @@ class Logger
   template <typename... Args>
   void report(const std::string& message, const Args&... args)
   {
-    logger_->log(spdlog::level::level_enum::off,
-                 FMT_RUNTIME(message + spdlog::details::os::default_eol),
-                 args...);
+    spdlog::level::level_enum report_level = spdlog::level::level_enum::off;
+
+    if (log_mode_ == LogMode::QUIET || log_mode_ == LogMode::SILENT) {
+      report_level = spdlog::level::level_enum::info;
+    }
+
+    logger_->log(report_level, FMT_RUNTIME(message), args...);
   }
 
   // Reports a string literal with no interpolation or newline.
@@ -330,6 +341,7 @@ class Logger
   std::vector<spdlog::sink_ptr> sinks_;
   std::shared_ptr<spdlog::logger> logger_;
   std::stack<std::string> metrics_stages_;
+  LogMode log_mode_;
 
   // interface to handle string and file redirections
   std::unique_ptr<std::ostringstream> string_redirect_;

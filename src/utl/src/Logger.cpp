@@ -23,14 +23,28 @@
 #include "utl/Progress.h"
 #include "utl/prometheus/metrics_server.h"
 #include "utl/prometheus/registry.h"
+#include "spdlog/common.h"
+#include "spdlog/sinks/sink.h"
 
 namespace utl {
 
-Logger::Logger(const char* log_filename, const char* metrics_filename)
+Logger::Logger(const char* log_filename, const char *metrics_filename, const bool quiet_logs, const bool silent_logs)
 {
   progress_ = std::make_unique<CommandLineProgress>(this);
+  log_mode_ = LogMode::FULL;
+  auto stdout = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 
-  sinks_.push_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+  if (quiet_logs) {
+    log_mode_ = LogMode::QUIET;
+    stdout->set_level(spdlog::level::warn);
+  }
+
+  if (silent_logs) {
+    log_mode_ = LogMode::SILENT;
+  } else {
+    sinks_.push_back(stdout);
+  }
+
   if (log_filename)
     sinks_.push_back(
         std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename));

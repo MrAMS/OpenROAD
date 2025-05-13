@@ -19,13 +19,15 @@ namespace ord {
 
 Tech::Tech(Tcl_Interp* interp,
            const char* log_filename,
-           const char* metrics_filename)
+           const char* metrics_filename,
+           const bool quiet_logs,
+           const bool silent_logs)
     : app_(new OpenRoad())
 {
   if (!interp) {
     interp = Tcl_CreateInterp();
     Tcl_Init(interp);
-    app_->init(interp, log_filename, metrics_filename);
+    app_->init(interp, log_filename, metrics_filename, quiet_logs, silent_logs);
   }
 }
 
