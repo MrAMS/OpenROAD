@@ -1,6 +1,5 @@
 name: 📦 Create Dependency Snapshot
 
-# 允许你从 GitHub "Actions" 页面手动触发此工作流
 on:
   workflow_dispatch:
     inputs:
@@ -18,11 +17,19 @@ jobs:
   create-snapshot:
     runs-on: ubuntu-latest
 
-    # 授予 gh (GitHub CLI) 写入 Release 的权限
     permissions:
       contents: write # 允许 gh 创建 release
 
     steps:
+      # ===============================================
+      # ⬇️ 修正：添加了这一步 ⬇️
+      # ===============================================
+      - name: 0. 🏁 Checkout Main Repo
+        uses: actions/checkout@v4
+        with:
+          # 我们需要 'gh' CLI 来与这个仓库的 API 交互
+          fetch-depth: 0 
+          
       - name: 1. 📥 Clone & Package Dependency
         run: |
           echo "Cloning ${{ inputs.repo_url }}..."
@@ -33,8 +40,7 @@ jobs:
           echo "Checking out commit ${{ inputs.commit_hash }}..."
           git checkout ${{ inputs.commit_hash }}
           
-          # 获取顶层目录名，以备 strip_prefix 使用
-          # (注意: 我们在这里克隆到了 'dep_source'，所以 strip_prefix 应该是 'dep_source')
+          # 关键提示：我们打包的目录是 'dep_source'
           echo "Top-level directory in archive will be 'dep_source'"
           cd ..
           
@@ -52,13 +58,11 @@ jobs:
 
       - name: 3. 🚀 Create GitHub Release
         env:
-          # 这是一个自动提供的 token，用于授权
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Creating GitHub Release with tag ${{ inputs.tag_name }}..."
           
-          # 使用 gh (GitHub CLI) 创建 release 并上传附件
-          # 这会在你 *运行此 Action* 的仓库中创建 Release
+          # 现在 'gh' CLI 知道它在哪个仓库里了，因为第一步 checkout 了
           gh release create ${{ inputs.tag_name }} \
               --notes "Automated snapshot for ${{ inputs.repo_url }} at commit ${{ inputs.commit_hash }}" \
               --title "Dependency Snapshot: ${{ inputs.tag_name }}" \
