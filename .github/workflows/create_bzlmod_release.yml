@@ -1,0 +1,84 @@
+name: 📦 Publish Bzlmod Snapshot Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - 'snapshot-*' # 你可以通过这个命令触发：git tag "snapshot-$(git rev-parse HEAD)" && git push origin "snapshot-$(git rev-parse HEAD)"
+
+jobs:
+  package-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 允许 gh cli 创建 release
+
+    steps:
+      - name: 1. 🏁 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+          
+      - name: 2. 📦 Create Source Tarball (incl. submodules)
+        id: package
+        run: |
+          TAR_NAME="${{ github.ref_name }}.tar.gz"
+          echo "Creating tarball: $TAR_NAME..."
+          
+          # 安全的做法：在被打包目录之外创建 tarball
+          tar --exclude=.git \
+              --exclude=.github \
+              -czvf "../$TAR_NAME" .
+              
+          # 将 tarball 移回当前目录，以便后续步骤上传
+          mv "../$TAR_NAME" .
+          
+          echo "tar_name=$TAR_NAME" >> $GITHUB_OUTPUT
+          
+      - name: 3. 🧮 Calculate Bzlmod Integrity Hash (sha256-base64)
+        id: sha
+        run: |
+          TAR_NAME="${{ steps.package.outputs.tar_name }}"
+          SHA_NAME="${TAR_NAME}.sha256"
+
+          # 计算 Bzlmod 期望的 sha256-base64 格式
+          BASE64_HASH=$(sha256sum "$TAR_NAME" | cut -d' ' -f1 | xxd -r -p | base64 -w0)
+          INTEGRITY_STRING="sha256-${BASE64_HASH}"
+          
+          echo "Calculated Integrity: $INTEGRITY_STRING"
+          echo "$INTEGRITY_STRING" > "$SHA_NAME"
+
+          echo "integrity_string=$INTEGRITY_STRING" >> $GITHUB_OUTPUT
+          echo "sha_name=$SHA_NAME" >> $GITHUB_OUTPUT
+          
+      - name: 4. 🚀 Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 准备 Release Notes, 包含完整的 Bzlmod 代码片段
+          NOTES=$(cat <<EOF
+          Automated release for commit \`${{ github.sha }}\`.
+
+          ---
+          
+          ### 🎯 Bzlmod Configuration
+          
+          To use this release in your \`MODULE.bazel\` file, add the following override:
+          
+          \`\`\`bzl
+          archive_override(
+              module_name = "YOUR_MODULE_NAME",  # <-- TODO: Update this
+              integrity = "${{ steps.sha.outputs.integrity_string }}",
+              urls = ["https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.package.outputs.tar_name }}"]
+          )
+          \`\`\`
+          EOF
+          )
+          
+          # 创建 Release 并上传 tarball 和 sha256 文件
+          gh release create ${{ github.ref_name }} \
+              --notes "$NOTES" \
+              --title "Snapshot ${{ github.ref_name }}" \
+              "${{ steps.package.outputs.tar_name }}" \
+              "${{ steps.sha.outputs.sha_name }}"
+              
+          echo "✅ Release created successfully!"
