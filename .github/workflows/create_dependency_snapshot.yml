@@ -1,0 +1,68 @@
+name: 📦 Create Dependency Snapshot
+
+# 允许你从 GitHub "Actions" 页面手动触发此工作流
+on:
+  workflow_dispatch:
+    inputs:
+      repo_url:
+        description: 'Repo URL to snapshot (e.g., https://github.com/amorphic-io/OpenROAD.git)'
+        required: true
+      commit_hash:
+        description: 'Commit hash to checkout'
+        required: true
+      tag_name:
+        description: 'Tag name for the new release (e.g., openroad-c80e)'
+        required: true
+
+jobs:
+  create-snapshot:
+    runs-on: ubuntu-latest
+
+    # 授予 gh (GitHub CLI) 写入 Release 的权限
+    permissions:
+      contents: write # 允许 gh 创建 release
+
+    steps:
+      - name: 1. 📥 Clone & Package Dependency
+        run: |
+          echo "Cloning ${{ inputs.repo_url }}..."
+          # --recursive 是关键，它会拉取所有子模块
+          git clone --recursive ${{ inputs.repo_url }} dep_source
+          
+          cd dep_source
+          echo "Checking out commit ${{ inputs.commit_hash }}..."
+          git checkout ${{ inputs.commit_hash }}
+          
+          # 获取顶层目录名，以备 strip_prefix 使用
+          # (注意: 我们在这里克隆到了 'dep_source'，所以 strip_prefix 应该是 'dep_source')
+          echo "Top-level directory in archive will be 'dep_source'"
+          cd ..
+          
+          echo "Creating tarball..."
+          # 将 'dep_source' 目录打包
+          tar -czvf ${{ inputs.tag_name }}.tar.gz dep_source
+
+      - name: 2. 🧮 Calculate SHA256
+        run: |
+          echo "Calculating SHA256..."
+          sha256sum ${{ inputs.tag_name }}.tar.gz | cut -d' ' -f1 > ${{ inputs.tag_name }}.sha256
+          
+          echo "SHA256:"
+          cat ${{ inputs.tag_name }}.sha256
+
+      - name: 3. 🚀 Create GitHub Release
+        env:
+          # 这是一个自动提供的 token，用于授权
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Creating GitHub Release with tag ${{ inputs.tag_name }}..."
+          
+          # 使用 gh (GitHub CLI) 创建 release 并上传附件
+          # 这会在你 *运行此 Action* 的仓库中创建 Release
+          gh release create ${{ inputs.tag_name }} \
+              --notes "Automated snapshot for ${{ inputs.repo_url }} at commit ${{ inputs.commit_hash }}" \
+              --title "Dependency Snapshot: ${{ inputs.tag_name }}" \
+              ${{ inputs.tag_name }}.tar.gz \
+              ${{ inputs.tag_name }}.sha256
+
+          echo "✅ Release created successfully!"
