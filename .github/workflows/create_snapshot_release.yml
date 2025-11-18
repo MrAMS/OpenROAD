@@ -19,62 +19,50 @@ jobs:
           submodules: 'recursive'
           
       - name: 2. 📦 Package (with submodules)
-        id: package # 👈 给这一步一个 ID
+        id: package
         run: |
           TAR_NAME="${{ github.ref_name }}.tar.gz"
           echo "Creating tarball: $TAR_NAME..."
           
-          # 修正的 tar 命令
           tar --exclude=.git \
               --exclude=.github \
-              --exclude="./${TAR_NAME}" \
-              -czvf "$TAR_NAME" .
+              -czvf "../$TAR_NAME" .
           
-          # 设置输出，供下一步使用
+          mv "../$TAR_NAME" .
+          
           echo "tar_name=$TAR_NAME" >> $GITHUB_OUTPUT
           
-      # 步骤 3：计算 SHA256 (Base64)
       - name: 3. 🧮 Calculate SHA256 (Base64)
-        id: sha # 👈 给这一步一个 ID
+        id: sha
         run: |
           TAR_NAME="${{ steps.package.outputs.tar_name }}"
           SHA_NAME="${TAR_NAME}.sha256"
 
-          HEX_HASH=$(sha256sum "$TAR_NAME" | cut -d' ' -f1)
-          
-          BASE64_HASH=$(echo $HEX_HASH | xxd -r -p | base64)
-          
+          BASE64_HASH=$(sha256sum "$TAR_NAME" | cut -d' ' -f1 | xxd -r -p | base64 -w0)
           INTEGRITY_STRING="sha256-${BASE64_HASH}"
           
           echo "Calculated Integrity: $INTEGRITY_STRING"
-          
           echo "$INTEGRITY_STRING" > "$SHA_NAME"
 
           echo "integrity_string=$INTEGRITY_STRING" >> $GITHUB_OUTPUT
           echo "sha_name=$SHA_NAME" >> $GITHUB_OUTPUT
           
-      # ===============================================
-      # ⬇️ 修正：这一步现在会将 Base64 写入 --notes ⬇️
-      # ===============================================
       - name: 4. 🚀 Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 从上一步的输出中获取 integrity 字符串
-          INTEGRITY_STRING: ${{ steps.sha.outputs.integrity_string }}
         run: |
-          read -r -d '' NOTES << EOF
+          gh release create ${{ github.ref_name }} \
+              --notes "$(cat <<'EOF'
           Automated release snapshot including all submodules for commit ${{ github.sha }}.
-
+          
           ---
           
           **Bzlmod \`integrity\` value (copy this):**
-          \`\`\`
-          ${INTEGRITY_STRING}
-          \`\`\`
+          ```
+          ${{ steps.sha.outputs.integrity_string }}
+          ```
           EOF
-
-          gh release create ${{ github.ref_name }} \
-              --notes "$NOTES" \
+          )" \
               --title "Snapshot ${{ github.ref_name }}" \
               "${{ steps.package.outputs.tar_name }}" \
               "${{ steps.sha.outputs.sha_name }}"
