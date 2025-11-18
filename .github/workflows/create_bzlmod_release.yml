@@ -24,11 +24,13 @@ jobs:
           TAR_NAME="${{ github.ref_name }}.tar.gz"
           echo "Creating tarball: $TAR_NAME..."
           
-          # 在当前目录创建 tarball，并排除 .git, .github 和 tarball 自身
+          # 安全的做法：在被打包目录之外创建 tarball
           tar --exclude=.git \
               --exclude=.github \
-              --exclude="./$TAR_NAME" \
-              -czvf "$TAR_NAME" .
+              -czvf "../$TAR_NAME" .
+              
+          # 将 tarball 移回当前目录，以便后续步骤上传
+          mv "../$TAR_NAME" .
           
           echo "tar_name=$TAR_NAME" >> $GITHUB_OUTPUT
           
@@ -52,7 +54,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 准备 Release Notes，包含完整的 Bzlmod 代码片段
+          # 准备 Release Notes, 包含完整的 Bzlmod 代码片段
           NOTES=$(cat <<EOF
           Automated snapshot for commit \`${{ github.sha }}\`.
 
