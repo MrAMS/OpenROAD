@@ -1,7 +1,5 @@
 name: 📦 Create Snapshot Release
 
-# 触发器：
-# 当你推送一个新 tag (例如 v1.0-snapshot) 时自动运行
 on:
   push:
     tags:
@@ -11,38 +9,33 @@ on:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
-    
-    # 授予创建 Release 的权限
     permissions:
       contents: write
 
     steps:
-      # 步骤 1：签出当前仓库的代码
-      # 这会签出触发此 CI 的那个 tag (commit)
+      # 步骤 1：签出当前仓库的代码 (并拉取子模块)
       - name: 1. 🏁 Checkout Current Repo Code
         uses: actions/checkout@v4
         with:
-          # 关键：自动拉取所有子模块
           submodules: 'recursive'
           
       # 步骤 2：打包 (包含所有子模块)
       - name: 2. 📦 Package (with submodules)
         run: |
           # GITHUB_REF_NAME 是 CI 被触发时的 tag 名字 (例如 "v1.0-snapshot")
-          # 我们用它来命名文件
           TAR_NAME="${{ github.ref_name }}.tar.gz"
           
           echo "Creating tarball: $TAR_NAME..."
           
-          # 打包当前目录下的所有文件 (已经被 checkout 并且包含子模块)
-          # --exclude=.git 确保我们不打包 .git 历史
-          # --exclude=.github 确保我们不打包 CI 脚本本身
-          tar --exclude=.git --exclude=.github -czvf "$TAR_NAME" .
+          tar --exclude=.git \
+              --exclude=.github \
+              --exclude="$TAR_NAME" \
+              -czvf "$TAR_NAME" .
           
           echo "::set-output name=tar_name::$TAR_NAME"
         id: package
 
-      # 步骤 3：计算 SHA256
+      # 步骤 3：计算 SHA256 (无变动)
       - name: 3. 🧮 Calculate SHA256
         run: |
           TAR_NAME="${{ steps.package.outputs.tar_name }}"
@@ -54,12 +47,11 @@ jobs:
           echo "::set-output name=sha_name::$SHA_NAME"
         id: sha
 
-      # 步骤 4：创建 GitHub Release
+      # 步骤 4：创建 GitHub Release (无变动)
       - name: 4. 🚀 Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 自动使用 tag (GITHUB_REF_NAME) 作为 Release 的名字
           gh release create ${{ github.ref_name }} \
               --notes "Automated release snapshot including all submodules for commit ${{ github.sha }}." \
               --title "Snapshot ${{ github.ref_name }}" \
