@@ -13,28 +13,27 @@ jobs:
       contents: write
 
     steps:
-      # 步骤 1：签出当前仓库的代码 (并拉取子模块)
       - name: 1. 🏁 Checkout Current Repo Code
         uses: actions/checkout@v4
         with:
           submodules: 'recursive'
           
-      # 步骤 2：打包 (包含所有子模块)
       - name: 2. 📦 Package (with submodules)
         run: |
           TAR_NAME="${{ github.ref_name }}.tar.gz"
-          
           echo "Creating tarball: $TAR_NAME..."
           
+          # 输出到父目录避免冲突
           tar --exclude=.git \
               --exclude=.github \
-              --exclude="./${TAR_NAME}" \
-              -czvf "$TAR_NAME" .
+              -czvf "../$TAR_NAME" .
           
-          echo "::set-output name=tar_name::$TAR_NAME"
+          # 移回当前目录
+          mv "../$TAR_NAME" .
+          
+          echo "tar_name=$TAR_NAME" >> $GITHUB_OUTPUT
         id: package
 
-      # 步骤 3：计算 SHA256 (无变动)
       - name: 3. 🧮 Calculate SHA256
         run: |
           TAR_NAME="${{ steps.package.outputs.tar_name }}"
@@ -43,10 +42,9 @@ jobs:
           echo "Calculating SHA256..."
           sha256sum "$TAR_NAME" | cut -d' ' -f1 > "$SHA_NAME"
           
-          echo "::set-output name=sha_name::$SHA_NAME"
+          echo "sha_name=$SHA_NAME" >> $GITHUB_OUTPUT
         id: sha
 
-      # 步骤 4：创建 GitHub Release (无变动)
       - name: 4. 🚀 Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
