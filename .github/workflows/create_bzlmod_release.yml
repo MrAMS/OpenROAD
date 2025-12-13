@@ -20,10 +20,21 @@ jobs:
         with:
           submodules: "recursive"
 
-      - name: 2. 📦 Create Source Tarball (incl. submodules)
+      - name: 2. 🏷️ Generate Release Tag (Date + Hash)
+        id: generate_tag
+        run: |
+          # 生成日期+hash格式的tag: snapshot-YYYYMMDD-shortSHA
+          DATE=$(date +%Y%m%d)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          TAG_NAME="snapshot-${DATE}-${SHORT_SHA}"
+
+          echo "Generated tag: $TAG_NAME"
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+      - name: 3. 📦 Create Source Tarball (incl. submodules)
         id: package
         run: |
-          TAR_NAME="${{ github.ref_name }}.tar.gz"
+          TAR_NAME="${{ steps.generate_tag.outputs.tag_name }}.tar.gz"
           echo "Creating tarball: $TAR_NAME..."
 
           # 安全的做法：在被打包目录之外创建 tarball
@@ -70,20 +81,20 @@ jobs:
           archive_override(
               module_name = "YOUR_MODULE_NAME",  # <-- TODO: Update this
               integrity = "${{ steps.sha.outputs.integrity_string }}",
-              urls = ["https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.package.outputs.tar_name }}"]
+              urls = ["https://github.com/${{ github.repository }}/releases/download/${{ steps.generate_tag.outputs.tag_name }}/${{ steps.package.outputs.tar_name }}"]
           )
           \`\`\`
           EOF
           )
 
           # 如果 release 已存在，先删除它（允许失败）
-          echo "Checking if release ${{ github.ref_name }} already exists..."
-          gh release delete ${{ github.ref_name }} --yes --cleanup-tag 2>/dev/null || echo "Release does not exist or failed to delete, continuing..."
+          echo "Checking if release ${{ steps.generate_tag.outputs.tag_name }} already exists..."
+          gh release delete ${{ steps.generate_tag.outputs.tag_name }} --yes --cleanup-tag 2>/dev/null || echo "Release does not exist or failed to delete, continuing..."
 
           # 创建 Release 并上传 tarball 和 sha256 文件
-          gh release create ${{ github.ref_name }} \
+          gh release create ${{ steps.generate_tag.outputs.tag_name }} \
               --notes "$NOTES" \
-              --title "Snapshot ${{ github.ref_name }}" \
+              --title "Snapshot ${{ steps.generate_tag.outputs.tag_name }}" \
               "${{ steps.package.outputs.tar_name }}" \
               "${{ steps.sha.outputs.sha_name }}"
 
