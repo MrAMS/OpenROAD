@@ -20,7 +20,7 @@ jobs:
         with:
           submodules: "recursive"
 
-      - name: 2. 🏷️ Generate Release Tag (Date + Hash)
+      - name: 2. 🏷️ Generate Release Tag and Module Name
         id: generate_tag
         run: |
           # 生成日期+hash格式的tag: snapshot-YYYYMMDD-shortSHA
@@ -28,8 +28,13 @@ jobs:
           SHORT_SHA=$(git rev-parse --short HEAD)
           TAG_NAME="snapshot-${DATE}-${SHORT_SHA}"
 
+          # 从 github.repository (格式: owner/repo) 中提取 repo 名称并转为小写
+          REPO_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2 | tr '[:upper:]' '[:lower:]')
+
           echo "Generated tag: $TAG_NAME"
+          echo "Module name: $REPO_NAME"
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "module_name=$REPO_NAME" >> $GITHUB_OUTPUT
 
       - name: 3. 📦 Create Source Tarball (incl. submodules)
         id: package
@@ -79,9 +84,9 @@ jobs:
 
           \`\`\`bzl
           archive_override(
-              module_name = "YOUR_MODULE_NAME",  # <-- TODO: Update this
+              module_name = "${{ steps.generate_tag.outputs.module_name }}",
+              urls = ["https://github.com/${{ github.repository }}/releases/download/${{ steps.generate_tag.outputs.tag_name }}/${{ steps.package.outputs.tar_name }}"],
               integrity = "${{ steps.sha.outputs.integrity_string }}",
-              urls = ["https://github.com/${{ github.repository }}/releases/download/${{ steps.generate_tag.outputs.tag_name }}/${{ steps.package.outputs.tar_name }}"]
           )
           \`\`\`
           EOF
