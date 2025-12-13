@@ -80,6 +80,7 @@ OPENROAD_LIBRARY_DEPS = [
 ]
 
 OPENROAD_COPTS = [
+    "-std=c++17",  # C++ standard - needed for exec configuration
     "-fopenmp",
     "-fexceptions",
     "-ffp-contract=off",  # Needed for floating point stability.
