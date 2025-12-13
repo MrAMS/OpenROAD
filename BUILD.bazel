@@ -81,7 +81,6 @@ OPENROAD_LIBRARY_DEPS = [
 
 OPENROAD_COPTS = [
     "-std=c++17",  # C++ standard - needed for exec configuration
-    "-fopenmp",
     "-fexceptions",
     "-ffp-contract=off",  # Needed for floating point stability.
     "-Wno-error",
@@ -113,11 +112,11 @@ cc_binary(
     ] + select({
         ":platform_cli": [],
     }),
-    copts = OPENROAD_COPTS,
+    copts = OPENROAD_COPTS + ["-fopenmp"],
     features = ["-use_header_modules"],
     linkopts = select({
         ":platform_cli": [],
-    }),
+    }) + ["-fopenmp"],
     malloc = "@tcmalloc//tcmalloc",
     visibility = ["//visibility:public"],
     deps = [
@@ -148,7 +147,7 @@ cc_library(
             "src/utl/include/utl/CFileUtils.h",
         ],
     ),
-    copts = OPENROAD_COPTS,
+    copts = OPENROAD_COPTS + ["-fopenmp"],
     defines = OPENROAD_DEFINES + [
         "BUILD_GUI=false",
     ],
@@ -175,7 +174,7 @@ cc_library(
             "src/utl/include/utl/CFileUtils.h",
         ],
     ),
-    copts = OPENROAD_COPTS,
+    copts = OPENROAD_COPTS + ["-fopenmp"],
     defines = OPENROAD_DEFINES + [
         "BUILD_GUI=false",
     ],
