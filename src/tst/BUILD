@@ -50,7 +50,7 @@ cc_library(
         "@bazel_tools//tools/cpp/runfiles",
         "@googletest//:gtest",
         "@spdlog",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ],
 )
 
@@ -81,6 +81,6 @@ cc_library(
         "@bazel_tools//tools/cpp/runfiles",
         "@googletest//:gtest",
         "@spdlog",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ],
 )

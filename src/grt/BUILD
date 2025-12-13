@@ -190,6 +190,7 @@ cc_library(
     ],
     includes = [
         "include",
+        "src",
     ],
     deps = [
         ":abstract-fastroute",
@@ -212,7 +213,7 @@ cc_library(
         "@boost.iterator",
         "@boost.stacktrace",
         "@openmp",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ],
 )
 

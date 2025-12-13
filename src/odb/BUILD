@@ -89,7 +89,7 @@ cc_library(
         "@boost.regex",
         "@boost.spirit",
         "@spdlog",
-        "@tk_tcl//:tcl",
+        "@tcl",
         "@yaml-cpp",
         "@zlib",
     ],
@@ -139,6 +139,9 @@ cc_library(
     features = [
         "-use_header_modules",
     ],
+    includes = [
+        "src/swig/common",
+    ],
     deps = [
         ":odb",
         "//:ord",
@@ -148,7 +151,7 @@ cc_library(
         "@boost.multi_array",
         "@boost.polygon",
         "@boost.stacktrace",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ],
 )
 

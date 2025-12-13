@@ -49,6 +49,7 @@ cc_library(
         "include/stt/flute.h",
         "include/stt/pd.h",
     ],
+    features = ["-layering_check"],  # Disable for lemon dependency
     includes = [
         "include",
     ],
@@ -57,7 +58,7 @@ cc_library(
         "//src/utl",
         "@boost.heap",
         "@boost.multi_array",
-        "@com_github_quantamhd_lemon//:lemon",
+        "@lemon",
     ],
 )
 
@@ -88,7 +89,7 @@ cc_library(
         "//src/utl",
         "@boost.multi_array",
         "@boost.stacktrace",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ],
 )
 

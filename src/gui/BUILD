@@ -87,7 +87,7 @@ QT_GUI_PLATFORMS = {
             "@boost.multi_array",
             "@boost.stacktrace",
             "@spdlog",
-            "@tk_tcl//:tcl",
+            "@tcl",
         ] + ([":uic_lib"] if platform == "headless" else []),
     )
     for platform, suffix in QT_GUI_PLATFORMS.items()

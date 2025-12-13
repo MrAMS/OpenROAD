@@ -202,6 +202,7 @@ cc_library(
     ],
     includes = [
         "include",
+        "src",
     ],
     deps = [
         ":db_hdrs",
@@ -264,6 +265,7 @@ cc_library(
     ],
     includes = [
         "include",
+        "src",
     ],
     deps = [
         ":db_hdrs",
@@ -279,7 +281,7 @@ cc_library(
         "@boost.polygon",
         "@boost.serialization",
         "@boost.stacktrace",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ],
 )
 

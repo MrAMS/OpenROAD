@@ -42,6 +42,7 @@ cc_library(
     ],
     includes = [
         "include",
+        "src",
     ],
     deps = [
         ":munkres",
@@ -54,7 +55,7 @@ cc_library(
         "@boost.container_hash",
         "@boost.random",
         "@boost.stacktrace",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ],
 )
 

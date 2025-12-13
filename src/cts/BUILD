@@ -54,6 +54,7 @@ cc_library(
         "include",
         "src",
     ],
+    features = ["-layering_check"],  # Disable for lemon dependency
     deps = [
         ":private_hdrs",
         "//src/dbSta",
@@ -67,7 +68,7 @@ cc_library(
         "@boost.container_hash",
         "@boost.polygon",
         "@boost.unordered",
-        "@com_github_quantamhd_lemon//:lemon",
+        "@lemon",
     ],
 )
 
@@ -98,7 +99,7 @@ cc_library(
         "//src/rsz",
         "//src/utl",
         "@boost.stacktrace",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ],
 )
 

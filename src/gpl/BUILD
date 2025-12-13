@@ -55,6 +55,7 @@ cc_library(
     copts = [
         "-fopenmp",
     ],
+    features = ["-layering_check"],  # Disable for lemon dependency
     includes = [
         "include",
     ],
@@ -76,12 +77,12 @@ cc_library(
         "@boost.stacktrace",
         "@boost.tokenizer",
         "@boost.utility",
-        "@com_github_quantamhd_lemon//:lemon",
+        "@lemon",
         "@eigen",
         "@openmp",
         "@or-tools//ortools/linear_solver",
         "@or-tools//ortools/sat:cp_model",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ],
 )
 

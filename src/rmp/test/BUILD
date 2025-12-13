@@ -166,6 +166,6 @@ cc_test(
         "//third-party/abc:abc-lib",
         "@googletest//:gtest",
         "@googletest//:gtest_main",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ],
 )

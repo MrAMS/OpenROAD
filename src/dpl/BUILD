@@ -76,11 +76,10 @@ cc_library(
         "include/dpl/Opendp.h",
         "include/dpl/OptMirror.h",
     ],
-    copts = [
-        "-Isrc/dpl/src",
-    ],
+    features = ["-layering_check"],  # Disable for lemon dependency
     includes = [
         "include",
+        "src",
     ],
     deps = [
         "//src/odb",
@@ -93,8 +92,8 @@ cc_library(
         "@boost.random",
         "@boost.tokenizer",
         "@boost.utility",
-        "@com_github_quantamhd_lemon//:lemon",
-        "@tk_tcl//:tcl",
+        "@lemon",
+        "@tcl",
     ],
 )
 
@@ -131,7 +130,7 @@ cc_library(
         "@boost.polygon",
         "@boost.stacktrace",
         "@boost.utility",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ],
 )
 

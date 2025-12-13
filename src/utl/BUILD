@@ -89,7 +89,7 @@ cc_library(
         "@boost.iterator",
         "@boost.random",
         "@spdlog",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ],
 )
 
