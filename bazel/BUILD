@@ -15,6 +15,9 @@ cc_library(
     srcs = [
         "InitRunFiles.cpp",
     ],
+    local_defines = [
+        "BAZEL_CURRENT_REPOSITORY=\\\"\\\"",
+    ],
     visibility = ["//visibility:public"],
     deps = [
         "@rules_cc//cc/runfiles",

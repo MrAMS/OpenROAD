@@ -60,6 +60,10 @@ def _python_wrap_cc_impl(ctx):
     )
     swig_options = _get_transitive_options(ctx.attr.swig_options, ctx.attr.deps)
 
+    # Add swig lib files to inputs
+    swig_lib_files = ctx.attr._swig_lib_python.files
+    all_inputs = depset(transitive = [src_inputs, swig_lib_files])
+
     args = ctx.actions.args()
     args.add("-DBAZEL=1")
     args.add("-python")
@@ -69,16 +73,38 @@ def _python_wrap_cc_impl(ctx):
     args.add(ctx.attr.module)
     args.add_all(swig_options.to_list())
     args.add_all(includes_paths.to_list(), format_each = "-I%s")
+
+    # Add swig Lib directory to includes
+    # Swig lib files are in external/swig+/Lib/
+    # We need to pass the parent directory (external/swig+) to swig via -I
+    if swig_lib_files:
+        lib_file = swig_lib_files.to_list()[0]
+        # Get the directory containing Lib (e.g., external/swig+)
+        # The lib files are at paths like external/swig+/Lib/python/python.swg
+        # Use the full path and extract the swig root
+        lib_path = lib_file.path
+        # Remove /Lib/xxx suffix to get to swig root
+        if "/Lib/" in lib_path:
+            lib_dir = lib_path.split("/Lib/")[0]
+        elif lib_path.endswith("/Lib"):
+            lib_dir = lib_path[:-4]  # Remove "/Lib"
+        else:
+            lib_dir = lib_file.dirname
+        args.add("-I{}".format(lib_dir))
+
+    # Get swig executable
+    swig_exe = [file for file in ctx.files._swig if file.basename == "swig"][0]
+
     args.add("-o")
     args.add(cc_output_file.path)
     args.add(root_file.path)
 
     ctx.actions.run(
         outputs = [cc_output_file, py_output_file],
-        inputs = src_inputs,
+        inputs = all_inputs,
         arguments = [args],
         tools = ctx.files._swig,
-        executable = ([file for file in ctx.files._swig if file.basename == "swig"][0]),
+        executable = swig_exe,
     )
     return [
         DefaultInfo(files = depset([cc_output_file, py_output_file])),
@@ -122,7 +148,12 @@ python_wrap_cc = rule(
             doc = "args to pass directly to the swig binary",
         ),
         "_swig": attr.label(
-            default = "@org_swig//:swig_stable",
+            default = "@swig//:swig",
+            allow_files = True,
+            cfg = "exec",
+        ),
+        "_swig_lib_python": attr.label(
+            default = "@swig//:lib_python",
             allow_files = True,
             cfg = "exec",
         ),

@@ -32,7 +32,7 @@ def _tcl_encode_or_impl(ctx):
         inputs = filtered_sources,
         arguments = [args],
         tools = [ctx.executable._encode_script],
-        executable = ctx.toolchains["@rules_python//python:toolchain_type"].py3_runtime.interpreter,
+        executable = ctx.toolchains["@openroad_rules_python//python:toolchain_type"].py3_runtime.interpreter,
     )
     return [DefaultInfo(files = depset([output_file]))]
 
@@ -62,5 +62,5 @@ tcl_encode = rule(
             cfg = "exec",
         ),
     },
-    toolchains = ["@rules_python//python:toolchain_type"],
+    toolchains = ["@openroad_rules_python//python:toolchain_type"],
 )
