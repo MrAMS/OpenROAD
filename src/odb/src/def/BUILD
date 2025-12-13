@@ -2,7 +2,7 @@
 # Copyright (c) 2025, The OpenROAD Authors
 
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
-load("@rules_hdl//dependency_support/org_gnu_bison:bison.bzl", "genyacc")
+load("@rules_bison//bison:bison.bzl", "bison_cc_library")
 
 package(
     default_visibility = ["//:__subpackages__"],
@@ -47,18 +47,62 @@ DEF_HEADERS = [
     "def/defwWriterCalls.hpp",
 ]
 
+# Wrapper header to make generated def_bison_lib.h available as def_parser.hpp
+# The source code expects def_parser.hpp, but bison_cc_library generates def_bison_lib.h
+# This wrapper is created statically without depending on bison output to avoid circular dependency
+genrule(
+    name = "def_parser_wrapper_gen",
+    outs = ["def/def_parser.hpp"],
+    cmd = """
+        echo '// Wrapper for bison-generated parser header' > $(location def/def_parser.hpp)
+        echo '// Bazel generates def_bison_lib.h, but source code expects def_parser.hpp' >> $(location def/def_parser.hpp)
+        echo '#ifndef DEF_PARSER_HPP' >> $(location def/def_parser.hpp)
+        echo '#define DEF_PARSER_HPP' >> $(location def/def_parser.hpp)
+        echo '// Bison header is one directory up from this wrapper' >> $(location def/def_parser.hpp)
+        echo '#include "../def_bison_lib.h"' >> $(location def/def_parser.hpp)
+        echo '#endif // DEF_PARSER_HPP' >> $(location def/def_parser.hpp)
+    """,
+)
+
+# Library to properly export the wrapper header
 cc_library(
-    name = "def_bison_lib",
-    srcs = [
-        ":def_bison",
+    name = "def_parser_wrapper",
+    hdrs = [":def_parser_wrapper_gen"],
+    includes = ["def"],
+    deps = [":def_bison_lib"],
+    features = [
+        "-use_header_modules",
+        "-layering_check",
     ],
-    hdrs = DEF_HEADERS + ["def/def_parser.hpp"],
-    # Ignore warnings in generated code
-    copts = [
-        "-Wno-unused-but-set-variable",
-        "-Wno-modules-import-nested-redundant",
+)
+
+# Header-only library for bison to access DEF headers
+# Note: Does NOT include def_parser_wrapper to avoid circular dependency
+# The wrapper is added to the main def library deps instead
+cc_library(
+    name = "def_headers",
+    hdrs = DEF_HEADERS + [":def_parser_wrapper_gen"],
+    features = [
+        "-use_header_modules",
     ],
     includes = ["def"],
+)
+
+bison_cc_library(
+    name = "def_bison_lib",
+    src = "def/def.y",
+    bison_options = ["-p", "defyy"],  # Match CMake behavior - no skeleton override
+    copts = [
+        "-x", "c++",
+        "-Wno-unused-but-set-variable",
+        "-Wno-modules-import-nested-redundant",
+        "-Wno-free-nonheap-object",
+    ],
+    features = [
+        "-use_header_modules",
+        "-layering_check",
+    ],
+    deps = [":def_headers"],
 )
 
 # TODO: This can probably be broken into smaller, more specific parts.
@@ -103,18 +147,15 @@ cc_library(
         "def/defwWriterCalls.cpp",
     ],
     hdrs = DEF_HEADERS,
+    features = [
+        "-use_header_modules",
+        "-layering_check",
+    ],
     includes = ["def"],
     deps = [
         ":def_bison_lib",
+        ":def_parser_wrapper",
     ],
-)
-
-genyacc(
-    name = "def_bison",
-    src = "def/def.y",
-    header_out = "def/def_parser.hpp",
-    prefix = "defyy",
-    source_out = "def/def_parser.cpp",
 )
 
 cc_library(

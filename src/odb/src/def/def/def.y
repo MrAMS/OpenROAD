@@ -53,6 +53,7 @@
 %define api.pure
 %lex-param {DefParser::defrData *defData}
 %parse-param {DefParser::defrData *defData}
+%language "c++"
 
 
 %{

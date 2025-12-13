@@ -46,8 +46,10 @@
 //   4000 - lef writer, error, lefwWrtier.cpp & lefwWriterCalls.cpp
 //   4500 - lef writer, warning, lefwWrtier.cpp & lefwWriterCalls.cpp
 //   4700 - lef writer, info, lefwWrtier.cpp & lefwWriterCalls.cpp
-// 
+//
 //   Highest message number = 4700
+
+%language "c++"
 
 %{
 #include <cstring>
