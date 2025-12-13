@@ -29,7 +29,7 @@ bazel_dep(name = "llvm-project", version = "17.0.3.bcr.4")
 
 bazel_dep(name = "rules_cc", version = "0.1.2")
 bazel_dep(name = "rules_jvm_external", version = "6.4")
-bazel_dep(name = "rules_scala")
+bazel_dep(name = "rules_scala", version = "7.1.5")  # Version required for bzlmod, overridden by git_override
 git_override(
     module_name = "rules_scala",
     commit = "1aced658083aac6c636fcc03b7cd3952a426eda7",
@@ -142,6 +142,18 @@ git_override(
     remote = "https://github.com/jbeder/yaml-cpp.git",
 )
 
+# A from source build of QT that allows it to link into OpenROAD.
+# Building like any other bazel project. scripts in the docker folder
+# of this project generate stubs .ifso for things like X11 that will
+# allow openroad to link, but will search on the system at runtime for
+# the correct system libs.
+bazel_dep(name = "qt-bazel")
+git_override(
+    module_name = "qt-bazel",
+    commit = "90cfbab79df93960c5493f8a75df6199fb80fe26",
+    remote = "https://github.com/The-OpenROAD-Project/qt_bazel_prebuilts",
+)
+
 bazel_dep(name = "googletest", version = "1.17.0", dev_dependency = True)
 
 bazel_dep(name = "abseil-cpp", version = "20240722.0", repo_name = "com_google_absl")
@@ -150,20 +162,19 @@ bazel_dep(name = "abseil-cpp", version = "20240722.0", repo_name = "com_google_a
 # BCR, they should depend on their own version.
 bazel_dep(name = "glpk", version = "5.0.bcr.3", repo_name = "org_gnu_glpk")
 
-## Lock the compiler version and avoid any local compiler
+## Toolchain dependencies
+# Note: When using OpenROAD as a dependency, the consuming project should
+# configure toolchains_llvm in their own MODULE.bazel file like this:
+#
+#   llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
+#   llvm.toolchain(llvm_version = "20.1.8")
+#   use_repo(llvm, "llvm_toolchain")
+#   register_toolchains("@llvm_toolchain//:all")
+#
 bazel_dep(name = "toolchains_llvm", version = "1.5.0")
 
-# Configure and register the toolchain.
-llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm")
-llvm.toolchain(
-    llvm_version = "20.1.8",
-)
-use_repo(llvm, "llvm_toolchain")
-# use_repo(llvm, "llvm_toolchain_llvm") # if you depend on specific tools in scripts
-
-# FYI: Comment out on NixOS where you'd like to use the local clang toolchain.
+# Register verilator toolchain (can be used by consumers)
 register_toolchains(
-    "@llvm_toolchain//:all",
     "@rules_verilator//verilator:verilator_toolchain",
 )
 

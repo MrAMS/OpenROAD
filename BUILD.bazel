@@ -160,7 +160,7 @@ cc_binary(
         "//src/utl",
         "@boost.stacktrace",
         "@rules_cc//cc/runfiles",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ],
 )
 
@@ -191,7 +191,7 @@ cc_library(
     deps = [
         "//src/sta:opensta_lib",
         "@boost.stacktrace",
-        "@tk_tcl//:tcl",
+        "@tcl",
     ] + OPENROAD_LIBRARY_DEPS,
 )
 
@@ -347,7 +347,7 @@ filegroup(
     srcs = [
         "src/Exception.i",
     ],
-    visibility = ["@//:__subpackages__"],
+    visibility = ["//:__subpackages__"],
 )
 
 filegroup(
@@ -355,7 +355,7 @@ filegroup(
     srcs = [
         "src/Exception-py.i",
     ],
-    visibility = ["@//:__subpackages__"],
+    visibility = ["//:__subpackages__"],
 )
 
 filegroup(
@@ -370,5 +370,5 @@ filegroup(
     srcs = [
         "src/options.i",
     ],
-    visibility = ["@//:__subpackages__"],
+    visibility = ["//:__subpackages__"],
 )
