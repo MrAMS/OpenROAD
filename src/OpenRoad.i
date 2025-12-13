@@ -143,7 +143,7 @@ getGlobalRouter()
   return openroad->getGlobalRouter();
 }
 
-tap::Tapcell* 
+tap::Tapcell*
 getTapcell()
 {
   OpenRoad *openroad = getOpenRoad();
@@ -223,18 +223,25 @@ using odb::dbTech;
 #ifdef SWIGTCL
 %include "Exception.i"
 
+// Tcl_Size compatibility for SWIG 4.3.0 with Tcl < 8.7
+%{
+#if (TCL_MAJOR_VERSION == 8) && (TCL_MINOR_VERSION < 7) && !defined(Tcl_Size)
+#define Tcl_Size int
+#endif
+%}
+
 %typemap(in) vector<LibertyCell*> * {
   $1 = sta::tclListSeqLibertyCell($input, interp);
 }
 
 %typemap(in) vector<const char*> * {
-  int argc;
+  Tcl_Size argc;
   Tcl_Obj **argv;
 
   if (Tcl_ListObjGetElements(interp, $input, &argc, &argv) == TCL_OK) {
     vector<const char*>* seq = new vector<const char*>;
-    for (int i = 0; i < argc; i++) {
-      int length;
+    for (Tcl_Size i = 0; i < argc; i++) {
+      Tcl_Size length;
       const char* str = Tcl_GetStringFromObj(argv[i], &length);
       seq->push_back(str);
     }
@@ -246,7 +253,7 @@ using odb::dbTech;
 }
 
 %typemap(in) utl::ToolId {
-  int length;
+  Tcl_Size length;
   const char *arg = Tcl_GetStringFromObj($input, &length);
   $1 = utl::Logger::findToolId(arg);
 }
@@ -344,7 +351,7 @@ write_abstract_lef_cmd(const char *filename,
 }
 
 
-void 
+void
 write_cdl_cmd(const char *outFilename,
               vector<const char*>* mastersFilenames,
               bool includeFillers)
@@ -489,7 +496,7 @@ db_layer_has_tracks(odb::dbTechLayer* layer, bool hor)
   if (!layer) {
     return false;
   }
-    
+
   dbDatabase *db = OpenRoad::openRoad()->getDb();
   dbBlock *block = db->getChip()->getBlock();
 
@@ -499,9 +506,9 @@ db_layer_has_tracks(odb::dbTechLayer* layer, bool hor)
   }
 
   if (hor) {
-    return trackGrid->getNumGridPatternsY() > 0; 
+    return trackGrid->getNumGridPatternsY() > 0;
   } else {
-    return trackGrid->getNumGridPatternsX() > 0; 
+    return trackGrid->getNumGridPatternsX() > 0;
   }
 }
 
