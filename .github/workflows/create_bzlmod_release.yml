@@ -76,6 +76,10 @@ jobs:
           EOF
           )
 
+          # 如果 release 已存在，先删除它（允许失败）
+          echo "Checking if release ${{ github.ref_name }} already exists..."
+          gh release delete ${{ github.ref_name }} --yes --cleanup-tag 2>/dev/null || echo "Release does not exist or failed to delete, continuing..."
+
           # 创建 Release 并上传 tarball 和 sha256 文件
           gh release create ${{ github.ref_name }} \
               --notes "$NOTES" \
