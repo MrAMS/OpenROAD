@@ -3,18 +3,12 @@
 
 #pragma once
 
-namespace utl {
-class Logger;
-}
-
 extern "C" {
 struct Tcl_Interp;
 }
 
-namespace ord {
+namespace utl {
 
-utl::Logger *makeLogger(const char *log_filename, const char *metrics_filename,
-                        const bool quiet_logs, const bool silent_logs);
-void initLogger(utl::Logger* logger, Tcl_Interp* tcl_interp);
+void initLogger(Tcl_Interp* tcl_interp);
 
-}  // namespace ord
+}  // namespace utl

@@ -3,10 +3,16 @@
 
 #include "utl/Logger.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <memory>
-#include <mutex>
+#include <ostream>
+#include <sstream>
+#include <stack>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -16,6 +22,7 @@
 #else
 #include "spdlog/pattern_formatter.h"
 #endif
+#include "spdlog/common.h"
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/ostream_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
@@ -23,45 +30,39 @@
 #include "utl/Progress.h"
 #include "utl/prometheus/metrics_server.h"
 #include "utl/prometheus/registry.h"
-#include "spdlog/common.h"
-#include "spdlog/sinks/sink.h"
 
 namespace utl {
 
-Logger::Logger(const char* log_filename, const char *metrics_filename, const bool quiet_logs, const bool silent_logs)
+Logger::Logger(const char* log_filename, const char* metrics_filename)
 {
   progress_ = std::make_unique<CommandLineProgress>(this);
-  log_mode_ = LogMode::FULL;
-  auto stdout = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 
-  if (quiet_logs) {
-    log_mode_ = LogMode::QUIET;
-    stdout->set_level(spdlog::level::warn);
-  }
-
-  if (silent_logs) {
-    log_mode_ = LogMode::SILENT;
-  } else {
-    sinks_.push_back(stdout);
-  }
-
-  if (log_filename)
+  sinks_.push_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+  if (log_filename) {
     sinks_.push_back(
         std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename));
+  }
 
   logger_ = std::make_shared<spdlog::logger>(
       "logger", sinks_.begin(), sinks_.end());
   setFormatter();
   logger_->set_level(spdlog::level::level_enum::debug);
 
-  if (metrics_filename)
+  if (metrics_filename) {
     addMetricsSink(metrics_filename);
+  }
 
   metrics_policies_ = MetricsPolicy::makeDefaultPolicies();
 
   for (auto& counters : message_counters_) {
     for (auto& counter : counters) {
       counter = 0;
+    }
+  }
+
+  for (auto& levels : message_levels_) {
+    for (auto& level : levels) {
+      level.store(spdlog::level::off, std::memory_order_relaxed);
     }
   }
 
@@ -94,8 +95,9 @@ ToolId Logger::findToolId(const char* tool_name)
 {
   int tool_id = 0;
   for (const char* tool : tool_names_) {
-    if (strcmp(tool_name, tool) == 0)
+    if (strcmp(tool_name, tool) == 0) {
       return static_cast<ToolId>(tool_id);
+    }
     tool_id++;
   }
   return UKN;
@@ -142,10 +144,11 @@ void Logger::removeSink(spdlog::sink_ptr sink)
 
 void Logger::setMetricsStage(std::string_view format)
 {
-  if (metrics_stages_.empty())
+  if (metrics_stages_.empty()) {
     metrics_stages_.push(std::string(format));
-  else
+  } else {
     metrics_stages_.top() = format;
+  }
 }
 
 void Logger::clearMetricsStage()
@@ -183,10 +186,33 @@ void Logger::flushMetrics()
   }
 }
 
+void Logger::addWarningMetrics()
+{
+  // Add metrics for non-zero warnings
+  int warning_type_cnt = 0;
+  for (int i = 0; i < ToolId::SIZE; ++i) {
+    for (int j = 0; j <= max_message_id; ++j) {
+      if (message_counters_[i][j] > 0
+          && message_levels_[i][j] == spdlog::level::warn) {
+        warning_type_cnt++;
+        log_metric(
+            // NOLINTNEXTLINE(misc-include-cleaner)
+            fmt::format("flow__warnings__count:{}-{:04}", tool_names_[i], j),
+            std::to_string(message_counters_[i][j]));
+      }
+    }
+  }
+
+  // Add a metric to report the number of unique warning types
+  log_metric("flow__warnings__type_count", std::to_string(warning_type_cnt));
+}
+
 void Logger::finalizeMetrics()
 {
   log_metric("flow__warnings__count", std::to_string(warning_count_));
   log_metric("flow__errors__count", std::to_string(error_count_));
+
+  addWarningMetrics();
 
   for (MetricsPolicy policy : metrics_policies_) {
     policy.applyPolicy(metrics_entries_);
@@ -289,6 +315,12 @@ void Logger::teeStringBegin()
 std::string Logger::teeStringEnd()
 {
   return redirectStringEnd();
+}
+
+Logger* Logger::defaultLogger()
+{
+  static Logger default_logger;
+  return &default_logger;
 }
 
 void Logger::assertNoRedirect()

@@ -2,12 +2,23 @@
 // Copyright (c) 2019-2025, The OpenROAD Authors
 
 #include <algorithm>
+#include <iostream>
 #include <memory>
 #include <set>
 #include <utility>
 #include <vector>
 
+#include "db/infra/frSegStyle.h"
+#include "db/obj/frBTerm.h"
+#include "db/obj/frBlockObject.h"
+#include "db/obj/frInstTerm.h"
+#include "db/obj/frMarker.h"
+#include "db/obj/frShape.h"
+#include "db/obj/frVia.h"
 #include "dr/FlexDR.h"
+#include "frBaseTypes.h"
+#include "frDesign.h"
+#include "odb/geom.h"
 
 namespace drt {
 
@@ -15,7 +26,9 @@ void FlexDRWorker::endGetModNets(frOrderedIdSet<frNet*>& modNets)
 {
   for (auto& net : nets_) {
     if (net->isModified()) {
-      modNets.insert(net->getFrNet());
+      auto fr_net = net->getFrNet();
+      fr_net->setModified(true);
+      modNets.insert(fr_net);
     }
   }
   // change modified flag to true if another subnet get routed
@@ -29,7 +42,7 @@ void FlexDRWorker::endGetModNets(frOrderedIdSet<frNet*>& modNets)
 void FlexDRWorker::endRemoveNets_pathSeg(
     frDesign* design,
     frPathSeg* pathSeg,
-    std::set<std::pair<Point, frLayerNum>>& boundPts)
+    std::set<std::pair<odb::Point, frLayerNum>>& boundPts)
 {
   auto [begin, end] = pathSeg->getPoints();
   auto routeBox = getRouteBox();
@@ -69,7 +82,7 @@ void FlexDRWorker::endRemoveNets_pathSeg(
       if (begin.y() < routeBox.yMin()) {
         auto uPathSeg = std::make_unique<frPathSeg>(*pathSeg);
         auto ps = uPathSeg.get();
-        Point boundPt(end.x(), std::min(end.y(), routeBox.yMin()));
+        odb::Point boundPt(end.x(), std::min(end.y(), routeBox.yMin()));
         uPathSeg->setPoints(begin, boundPt);
         // change boundary style to ext if orig pathSeg crosses boundary
         if (end.y() > routeBox.yMin()) {
@@ -99,7 +112,7 @@ void FlexDRWorker::endRemoveNets_pathSeg(
       if (end.y() > routeBox.yMax()) {
         auto uPathSeg = std::make_unique<frPathSeg>(*pathSeg);
         auto ps = uPathSeg.get();
-        Point boundPt(begin.x(), std::max(begin.y(), routeBox.yMax()));
+        odb::Point boundPt(begin.x(), std::max(begin.y(), routeBox.yMax()));
         uPathSeg->setPoints(boundPt, end);
         // change boundary style to ext if orig pathSeg crosses boundary
         if (begin.y() < routeBox.yMax()) {
@@ -150,7 +163,7 @@ void FlexDRWorker::endRemoveNets_pathSeg(
       if (begin.x() < routeBox.xMin()) {
         auto uPathSeg = std::make_unique<frPathSeg>(*pathSeg);
         auto ps = uPathSeg.get();
-        Point boundPt(std::min(end.x(), routeBox.xMin()), end.y());
+        odb::Point boundPt(std::min(end.x(), routeBox.xMin()), end.y());
         uPathSeg->setPoints(begin, boundPt);
         // change boundary style to ext if orig pathSeg crosses boundary
         if (end.x() > routeBox.xMin()) {
@@ -180,7 +193,7 @@ void FlexDRWorker::endRemoveNets_pathSeg(
       if (end.x() > routeBox.xMax()) {
         auto uPathSeg = std::make_unique<frPathSeg>(*pathSeg);
         auto ps = uPathSeg.get();
-        Point boundPt(std::max(begin.x(), routeBox.xMax()), begin.y());
+        odb::Point boundPt(std::max(begin.x(), routeBox.xMax()), begin.y());
         uPathSeg->setPoints(boundPt, end);
         // change boundary style to ext if orig pathSeg crosses at boundary
         if (begin.x() < routeBox.xMax()) {
@@ -254,7 +267,8 @@ void FlexDRWorker::endRemoveNets_patchWire(frDesign* design, frPatchWire* pwire)
 void FlexDRWorker::endRemoveNets(
     frDesign* design,
     frOrderedIdSet<frNet*>& modNets,
-    frOrderedIdMap<frNet*, std::set<std::pair<Point, frLayerNum>>>& boundPts)
+    frOrderedIdMap<frNet*, std::set<std::pair<odb::Point, frLayerNum>>>&
+        boundPts)
 {
   std::vector<frBlockObject*> result;
   design->getRegionQuery()->queryDRObj(getExtBox(), result);
@@ -340,7 +354,7 @@ void FlexDRWorker::endAddNets_patchWire(frDesign* design, drPatchWire* pwire)
 void FlexDRWorker::endAddNets_merge(
     frDesign* design,
     frNet* net,
-    std::set<std::pair<Point, frLayerNum>>& boundPts)
+    std::set<std::pair<odb::Point, frLayerNum>>& boundPts)
 {
   frRegionQuery::Objects<frBlockObject> result;
   std::vector<frBlockObject*> drObjs;
@@ -352,7 +366,7 @@ void FlexDRWorker::endAddNets_merge(
     hasPatchMetal = false;
     bool skip = false;
     result.clear();
-    regionQuery->query(Rect(pt, pt), lNum, result);
+    regionQuery->query(odb::Rect(pt, pt), lNum, result);
     for (auto& [bx, obj] : result) {
       auto type = obj->typeId();
       if (type == frcInstTerm) {
@@ -382,7 +396,7 @@ void FlexDRWorker::endAddNets_merge(
     drObjs.clear();
     horzPathSegs.clear();
     vertPathSegs.clear();
-    regionQuery->queryDRObj(Rect(pt, pt), lNum, drObjs);
+    regionQuery->queryDRObj(odb::Rect(pt, pt), lNum, drObjs);
     for (auto& obj : drObjs) {
       if (obj->typeId() == frcPathSeg) {
         auto ps = static_cast<frPathSeg*>(obj);
@@ -404,7 +418,7 @@ void FlexDRWorker::endAddNets_merge(
         if (!(pwire->getNet() == net)) {
           continue;
         }
-        Point bp = pwire->getOrigin();
+        odb::Point bp = pwire->getOrigin();
         if (bp == pt) {
           hasPatchMetal = true;
           break;
@@ -419,8 +433,8 @@ void FlexDRWorker::endAddNets_merge(
       auto rptr = static_cast<frPathSeg*>(uShape.get());
       auto [bp1, ep1] = horzPathSegs[0]->getPoints();
       auto [bp2, ep2] = horzPathSegs[1]->getPoints();
-      Point bp(std::min(bp1.x(), bp2.x()), bp1.y());
-      Point ep(std::max(ep1.x(), ep2.x()), ep1.y());
+      odb::Point bp(std::min(bp1.x(), bp2.x()), bp1.y());
+      odb::Point ep(std::max(ep1.x(), ep2.x()), ep1.y());
       rptr->setPoints(bp, ep);
 
       frSegStyle style = horzPathSegs[0]->getStyle();
@@ -461,8 +475,8 @@ void FlexDRWorker::endAddNets_merge(
       auto rptr = static_cast<frPathSeg*>(uShape.get());
       auto [bp1, ep1] = vertPathSegs[0]->getPoints();
       auto [bp2, ep2] = vertPathSegs[1]->getPoints();
-      Point bp(bp1.x(), std::min(bp1.y(), bp2.y()));
-      Point ep(ep1.x(), std::max(ep1.y(), ep2.y()));
+      odb::Point bp(bp1.x(), std::min(bp1.y(), bp2.y()));
+      odb::Point ep(ep1.x(), std::max(ep1.y(), ep2.y()));
       rptr->setPoints(bp, ep);
 
       frSegStyle style = vertPathSegs[0]->getStyle();
@@ -580,7 +594,8 @@ void FlexDRWorker::endAddNets_updateExtFigs(drNet* net)
 }
 void FlexDRWorker::endAddNets(
     frDesign* design,
-    frOrderedIdMap<frNet*, std::set<std::pair<Point, frLayerNum>>>& boundPts)
+    frOrderedIdMap<frNet*, std::set<std::pair<odb::Point, frLayerNum>>>&
+        boundPts)
 {
   for (auto& net : nets_) {
     if (!net->isModified()) {
@@ -659,7 +674,7 @@ void FlexDRWorker::cleanup()
   markers_.clear();
   markers_.shrink_to_fit();
   rq_.cleanup();
-  specialAccessAPs.clear();
+  specialAccessAPs_.clear();
 }
 
 bool FlexDRWorker::end(frDesign* design)
@@ -688,7 +703,7 @@ bool FlexDRWorker::end(frDesign* design)
   frOrderedIdSet<frNet*> modNets;
   endGetModNets(modNets);
   // get lock
-  frOrderedIdMap<frNet*, std::set<std::pair<Point, frLayerNum>>> boundPts;
+  frOrderedIdMap<frNet*, std::set<std::pair<odb::Point, frLayerNum>>> boundPts;
   endRemoveNets(design, modNets, boundPts);
   endAddNets(design, boundPts);  // if two subnets have diff isModified()
                                  // status, then should always write back

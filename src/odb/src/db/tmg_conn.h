@@ -16,182 +16,104 @@ namespace odb {
 class tmg_rc_sh
 {
  public:
-  Rect _rect;
-  dbTechLayer* _layer;
-  dbTechVia* _tech_via;
-  dbVia* _block_via;
-  dbTechNonDefaultRule* _rule;
-  Rect _via_lower_rect;
-  Rect _via_upper_rect;
+  tmg_rc_sh(Rect rect,
+            dbTechLayer* layer,
+            dbTechVia* tech_via,
+            dbVia* block_via,
+            dbTechNonDefaultRule* rule = nullptr)
+      : rect_(rect),
+        layer_(layer),
+        tech_via_(tech_via),
+        block_via_(block_via),
+        rule_(rule)
+  {
+  }
 
- public:
-  const Rect& rect() const { return _rect; }
-  int xMin() const { return _rect.xMin(); }
-  int xMax() const { return _rect.xMax(); }
-  int yMin() const { return _rect.yMin(); }
-  int yMax() const { return _rect.yMax(); }
-  bool isVia() const { return (_tech_via || _block_via); }
-  dbTechVia* getTechVia() const { return _tech_via; }
-  dbVia* getVia() const { return _block_via; }
-  dbTechLayer* getTechLayer() const { return _layer; }
-  uint getDX() const { return (_rect.xMax() - _rect.xMin()); }
-  uint getDY() const { return (_rect.yMax() - _rect.yMin()); }
-  void setXmin(int x) { _rect.set_xlo(x); }
-  void setXmax(int x) { _rect.set_xhi(x); }
-  void setYmin(int y) { _rect.set_ylo(y); }
-  void setYmax(int y) { _rect.set_yhi(y); }
+  const Rect& rect() const { return rect_; }
+  int xMin() const { return rect_.xMin(); }
+  int xMax() const { return rect_.xMax(); }
+  int yMin() const { return rect_.yMin(); }
+  int yMax() const { return rect_.yMax(); }
+  uint getDX() const { return (rect_.xMax() - rect_.xMin()); }
+  uint getDY() const { return (rect_.yMax() - rect_.yMin()); }
+
+  bool isVia() const { return (tech_via_ || block_via_); }
+  dbTechVia* getTechVia() const { return tech_via_; }
+  dbVia* getVia() const { return block_via_; }
+  dbTechLayer* getTechLayer() const { return layer_; }
+  dbTechNonDefaultRule* getRule() const { return rule_; }
+
+  void setXmin(int x) { rect_.set_xlo(x); }
+  void setXmax(int x) { rect_.set_xhi(x); }
+  void setYmin(int y) { rect_.set_ylo(y); }
+  void setYmax(int y) { rect_.set_yhi(y); }
+
+ private:
+  Rect rect_;
+  dbTechLayer* layer_{nullptr};
+  dbTechVia* tech_via_{nullptr};
+  dbVia* block_via_{nullptr};
+  dbTechNonDefaultRule* rule_{nullptr};
 };
 
 struct tmg_rc
 {
-  int _from_idx;  // index to _ptV
-  int _to_idx;
-  tmg_rc_sh _shape;
-  bool _is_vertical;
-  int _width;
-  int _default_ext;
+  tmg_rc(const int from_idx,
+         const int to_idx,
+         const tmg_rc_sh& shape,
+         const bool is_vertical,
+         const int width,
+         const int default_ext)
+      : from_idx(from_idx),
+        to_idx(to_idx),
+        shape(shape),
+        is_vertical(is_vertical),
+        width(width),
+        default_ext(default_ext)
+  {
+  }
+  const int from_idx;  // index to _ptV
+  int to_idx;
+  tmg_rc_sh shape;
+  const bool is_vertical;
+  const int width;
+  const int default_ext;
 };
 
 struct tmg_rcpt
 {
-  int _x{0};  // nominal point
-  int _y{0};
-  dbTechLayer* _layer{nullptr};
-  int _tindex{-1};  // index to _termV
-  tmg_rcpt* _next_for_term{nullptr};
-  tmg_rcpt* _t_alt{nullptr};
-  tmg_rcpt* _next_for_clear{nullptr};
-  tmg_rcpt* _sring{nullptr};
-  int _dbwire_id{-1};
-  bool _fre{false};
-  bool _jct{false};
-  bool _pinpt{false};
-  bool _c2pinpt{false};
+  tmg_rcpt(int x, int y, dbTechLayer* layer) : x(x), y(y), layer(layer) {}
+  const int x;  // nominal point
+  const int y;
+  dbTechLayer* const layer;
+  int tindex{-1};  // index to _termV
+  tmg_rcpt* next_for_term{nullptr};
+  tmg_rcpt* t_alt{nullptr};
+  tmg_rcpt* next_for_clear{nullptr};
+  tmg_rcpt* sring{nullptr};
+  int dbwire_id{-1};
+  bool fre{false};
+  bool jct{false};
+  bool pinpt{false};
+  bool c2pinpt{false};
 };
 
 struct tmg_rcterm
 {
-  dbITerm* _iterm;
-  dbBTerm* _bterm;
-  tmg_rcpt* _pt;        // list of points
-  tmg_rcpt* _first_pt;  // first point in dfs
+  tmg_rcterm(dbITerm* iterm) : iterm(iterm), bterm(nullptr) {}
+  tmg_rcterm(dbBTerm* bterm) : iterm(nullptr), bterm(bterm) {}
+  dbITerm* const iterm;
+  dbBTerm* const bterm;
+  tmg_rcpt* pt;        // list of points
+  tmg_rcpt* first_pt;  // first point in dfs
 };
 
 struct tmg_rcshort
 {
-  int _i0;
-  int _i1;
-  bool _skip;
-};
-
-class tmg_conn_search;
-class tmg_conn_graph;
-struct tmg_connect_shape
-{
-  int k;
-  Rect rect;
-  int rtlev;
-};
-
-class tmg_conn
-{
- public:
-  tmg_conn(utl::Logger* logger);
-  ~tmg_conn();
-  void analyzeNet(dbNet* net);
-  void loadNet(dbNet* net);
-  void loadWire(dbWire* wire);
-  void loadSWire(dbNet* net);
-  bool isConnected() { return _connected; }
-  int ptDist(int fr, int to) const;
-
-  void checkConnOrdered();
-
- private:
-  void splitTtop();
-  void splitBySj(int j,
-                 const tmg_rc_sh* sj,
-                 int rt,
-                 int sjxMin,
-                 int sjyMin,
-                 int sjxMax,
-                 int sjyMax);
-  void findConnections();
-  void removeShortLoops();
-  void removeWireLoops();
-  void treeReorder(bool no_convert);
-  bool checkConnected();
-  void checkVisited();
-  tmg_rcpt* allocPt(int x, int y, dbTechLayer* layer);
-  void addRc(const dbShape& s, int from_idx, int to_idx);
-  void addRc(int k,
-             const tmg_rc_sh& s,
-             int from_idx,
-             int to_idx,
-             int xmin,
-             int ymin,
-             int xmax,
-             int ymax);
-  void addITerm(dbITerm* iterm);
-  void addBTerm(dbBTerm* bterm);
-  void connectShapes(int j, int k);
-  void connectTerm(int j, bool soft);
-  void connectTermSoft(int j, int rt, Rect& rect, int k);
-  void addShort(int i0, int i1);
-  void relocateShorts();
-  void setSring();
-  void detachTilePins();
-  void getBTermSearchBox(dbBTerm* bterm, dbShape& pin, Rect& rect);
-
-  int getStartNode();
-  void dfsClear();
-  bool dfsStart(int& j);
-  bool dfsNext(int* from, int* to, int* k, bool* is_short, bool* is_loop);
-  int isVisited(int j);
-  void addToWire(int fr, int to, int k, bool is_short, bool is_loop);
-  int getExtension(int ipt, const tmg_rc* rc);
-  int addPoint(int ipt, const tmg_rc* rc);
-  int addPoint(int from_idx, int ipt, const tmg_rc* rc);
-  int addPointIfExt(int ipt, const tmg_rc* rc);
-  tmg_rc* addRcPatch(int from_idx, int to_idx);
-  int getDisconnectedStart();
-  void copyWireIdToVisitedShorts(int j);
-
-  int _slicedTilePinCnt;
-  int _stbtx1[200];
-  int _stbty1[200];
-  int _stbtx2[200];
-  int _stbty2[200];
-  dbBTerm* _slicedTileBTerm[200];
-  std::unique_ptr<tmg_conn_search> _search;
-  std::unique_ptr<tmg_conn_graph> _graph;
-  std::vector<tmg_rc> _rcV;
-  std::vector<tmg_rcpt> _ptV;
-  std::vector<tmg_rcterm> _termV;
-  std::vector<tmg_rcterm*> _tstackV;
-  std::vector<tmg_rcshort> _shortV;
-  dbNet* _net;
-  bool _hasSWire;
-  bool _preserveSWire;
-  int _swireNetCnt;
-  bool _connected;
-  dbWireEncoder _encoder;
-  dbWire* _newWire;
-  dbTechNonDefaultRule* _net_rule;
-  dbTechNonDefaultRule* _path_rule;
-  int _misc_cnt;
-  int _cut_end_extMin;
-  int _need_short_wire_id;
-  std::vector<std::array<tmg_connect_shape, 32>> _csVV;
-  std::array<tmg_connect_shape, 32>* _csV;
-  std::vector<int> _csNV;
-  int _csN;
-  tmg_rcpt* _first_for_clear;
-
-  int _last_id;
-  int _firstSegmentAfterVia;
-  utl::Logger* logger_;
-  friend class tmg_conn_graph;
+  tmg_rcshort(int i0, int i1) : i0(i0), i1(i1) {}
+  const int i0;
+  const int i1;
+  bool skip{false};
 };
 
 // This stores shapes by level through addShape.  Once all the shapes
@@ -216,6 +138,108 @@ class tmg_conn_search
  private:
   class Impl;
   std::unique_ptr<Impl> impl_;
+};
+
+class tmg_conn_graph;
+struct tmg_connect_shape
+{
+  int k;
+  Rect rect;
+  int rtlev;
+};
+
+class tmg_conn
+{
+ public:
+  tmg_conn(utl::Logger* logger);
+  ~tmg_conn();
+  void analyzeNet(dbNet* net);
+  void loadNet(dbNet* net);
+  void loadWire(dbWire* wire);
+  void loadSWire(dbNet* net);
+  bool isConnected() { return _connected; }
+  int ptDist(int fr, int to) const;
+  const tmg_rcpt& pt(const int index) const { return ptV_[index]; }
+  void checkConnOrdered();
+
+ private:
+  tmg_rcpt& pt(const int index) { return ptV_[index]; }
+  void splitTtop();
+  void splitBySj(int j, int rt, int sjxMin, int sjyMin, int sjxMax, int sjyMax);
+  void findConnections();
+  void removeShortLoops();
+  void removeWireLoops();
+  void treeReorder(bool no_convert);
+  bool checkConnected();
+  void checkVisited();
+  tmg_rcpt* allocPt(int x, int y, dbTechLayer* layer);
+  void addRc(const dbShape& s,
+             int from_idx,
+             int to_idx,
+             dbTechNonDefaultRule* rule = nullptr);
+  void addRc(int k,
+             const tmg_rc_sh& s,
+             int from_idx,
+             int to_idx,
+             int xmin,
+             int ymin,
+             int xmax,
+             int ymax);
+  void addITerm(dbITerm* iterm);
+  void addBTerm(dbBTerm* bterm);
+  void connectShapes(int j, int k);
+  void connectTerm(int j, bool soft);
+  void connectTermSoft(int j, int rt, Rect& rect, int k);
+  void addShort(int i0, int i1);
+  void relocateShorts();
+  void setSring();
+  void detachTilePins();
+  void getBTermSearchBox(dbBTerm* bterm, dbShape& pin, Rect& rect);
+
+  int getStartNode();
+  void dfsClear();
+  bool dfsStart(int& j);
+  bool dfsNext(int* from, int* to, int* k, bool* is_short, bool* is_loop);
+  int isVisited(int j) const;
+  void addToWire(int fr, int to, int k, bool is_short, bool is_loop);
+  int getExtension(int ipt, const tmg_rc* rc);
+  int addPoint(int ipt, const tmg_rc* rc);
+  int addPoint(int from_idx, int ipt, const tmg_rc* rc);
+  int addPointIfExt(int ipt, const tmg_rc* rc);
+  tmg_rc* addRcPatch(int from_idx, int to_idx);
+  int getDisconnectedStart();
+  void copyWireIdToVisitedShorts(int j);
+
+  int slicedTilePinCnt_;
+  int stbtx1_[200];
+  int stbty1_[200];
+  int stbtx2_[200];
+  int stbty2_[200];
+  dbBTerm* slicedTileBTerm_[200];
+  std::unique_ptr<tmg_conn_search> search_;
+  std::unique_ptr<tmg_conn_graph> graph_;
+  std::vector<tmg_rc> rcV_;
+  std::vector<tmg_rcpt> ptV_;
+  std::vector<tmg_rcterm> termV_;
+  std::vector<tmg_rcterm*> tstackV_;
+  std::vector<tmg_rcshort> shortV_;
+  dbNet* net_;
+  bool hasSWire_;
+  bool _connected;
+  dbWireEncoder encoder_;
+  dbWire* newWire_;
+  dbTechNonDefaultRule* net_rule_;
+  dbTechNonDefaultRule* path_rule_;
+  bool need_short_wire_id_;
+  std::vector<std::array<tmg_connect_shape, 32>> csVV_;
+  std::array<tmg_connect_shape, 32>* csV_;
+  std::vector<int> csNV_;
+  int csN_;
+  tmg_rcpt* first_for_clear_;
+
+  int last_id_;
+  int firstSegmentAfterVia_;
+  utl::Logger* logger_;
 };
 
 }  // namespace odb

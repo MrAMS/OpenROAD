@@ -9,9 +9,12 @@
 
 #include "db/obj/frBlockage.h"
 #include "db/obj/frInstBlockage.h"
+#include "db/obj/frPin.h"
 #include "db/obj/frRef.h"
 #include "frBaseTypes.h"
 #include "odb/db.h"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
 
 namespace drt {
 class frBlock;
@@ -68,17 +71,23 @@ class frInst : public frRef
    * setTransform
    */
 
-  dbOrientType getOrient() const override { return xform_.getOrient(); }
-  void setOrient(const dbOrientType& tmpOrient) override
+  odb::dbOrientType getOrient() const override { return xform_.getOrient(); }
+  void setOrient(const odb::dbOrientType& tmpOrient) override
   {
     xform_.setOrient(tmpOrient);
   }
-  Point getOrigin() const override { return xform_.getOffset(); }
-  void setOrigin(const Point& tmpPoint) override { xform_.setOffset(tmpPoint); }
-  dbTransform getTransform() const override { return xform_; }
-  void setTransform(const dbTransform& xformIn) override { xform_ = xformIn; }
+  odb::Point getOrigin() const override { return xform_.getOffset(); }
+  void setOrigin(const odb::Point& tmpPoint) override
+  {
+    xform_.setOffset(tmpPoint);
+  }
+  odb::dbTransform getTransform() const override { return xform_; }
+  void setTransform(const odb::dbTransform& xformIn) override
+  {
+    xform_ = xformIn;
+  }
   odb::dbInst* getDBInst() const { return db_inst_; }
-  dbTransform getDBTransform() const { return db_inst_->getTransform(); }
+  odb::dbTransform getDBTransform() const { return db_inst_->getTransform(); }
 
   /* from frPinFig
    * hasPin
@@ -111,15 +120,19 @@ class frInst : public frRef
    * intersects
    */
 
-  Rect getBBox() const override;
+  odb::Rect getBBox() const override;
 
-  void move(const dbTransform& xform) override { ; }
-  bool intersects(const Rect& box) const override { return false; }
+  void move(const odb::dbTransform& xform) override { ; }
+  bool intersects(const odb::Rect& box) const override { return false; }
   // others
-  dbTransform getNoRotationTransform() const;
-  Rect getBoundaryBBox() const;
+  odb::dbTransform getNoRotationTransform() const;
+  odb::Rect getBoundaryBBox() const;
 
   frInstTerm* getInstTerm(int index);
+  bool hasPinAccessUpdate() const { return has_pin_access_update_; }
+  void setHasPinAccessUpdate(bool in) { has_pin_access_update_ = in; }
+  odb::dbTransform getLatestPATransform() const { return latest_pa_xform_; }
+  void setLatestPATransform() { latest_pa_xform_ = xform_; }
 
  private:
   frString name_;
@@ -127,9 +140,11 @@ class frInst : public frRef
   std::vector<std::unique_ptr<frInstTerm>> instTerms_;
   std::vector<std::unique_ptr<frInstBlockage>> instBlockages_;
   odb::dbInst* db_inst_;
-  dbTransform xform_;
+  odb::dbTransform xform_;
+  odb::dbTransform latest_pa_xform_;
   int pinAccessIdx_{-1};
   bool toBeDeleted_{false};
+  bool has_pin_access_update_{true};
 };
 
 }  // namespace drt

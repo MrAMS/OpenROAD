@@ -4,16 +4,24 @@
 #include "drcWidget.h"
 
 #include <QApplication>
+#include <QComboBox>
 #include <QFileDialog>
 #include <QHeaderView>
+#include <QPushButton>
 #include <QVBoxLayout>
-#include <array>
-#include <iomanip>
-#include <map>
+#include <QVariant>
+#include <QWidget>
+#include <algorithm>
+#include <any>
+#include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "dbDescriptors.h"
+#include "gui/gui.h"
+#include "odb/db.h"
+#include "odb/geom.h"
 #include "utl/Logger.h"
 
 Q_DECLARE_METATYPE(odb::dbMarker*);
@@ -69,6 +77,7 @@ DRCWidget::DRCWidget(QWidget* parent)
   setWidget(container);
 
   connect(view_, &ObjectTree::clicked, this, &DRCWidget::clicked);
+  connect(view_, &ObjectTree::doubleClicked, this, &DRCWidget::doubleClicked);
   connect(view_->selectionModel(),
           &QItemSelectionModel::selectionChanged,
           this,
@@ -181,7 +190,7 @@ bool DRCWidget::setVisibleDRC(QStandardItem* item,
   return false;
 }
 
-void DRCWidget::clicked(const QModelIndex& index)
+void DRCWidget::showMarker(const QModelIndex& index, bool open_inspector)
 {
   QStandardItem* item = model_->itemFromIndex(index);
   QVariant data = item->data();
@@ -194,7 +203,7 @@ void DRCWidget::clicked(const QModelIndex& index)
       marker->setVisited(false);
     } else {
       Selected t = Gui::get()->makeSelected(marker);
-      emit selectDRC(t);
+      emit selectDRC(t, open_inspector);
       focusIndex(index);
     }
   } else {
@@ -206,6 +215,16 @@ void DRCWidget::clicked(const QModelIndex& index)
       }
     }
   }
+}
+
+void DRCWidget::clicked(const QModelIndex& index)
+{
+  showMarker(index, false);
+}
+
+void DRCWidget::doubleClicked(const QModelIndex& index)
+{
+  showMarker(index, true);
 }
 
 void DRCWidget::setBlock(odb::dbBlock* block)
@@ -253,7 +272,7 @@ void DRCWidget::updateModel()
   model_->removeRows(0, model_->rowCount());
 
   if (category != nullptr) {
-    for (odb::dbMarkerCategory* subcategory : category->getMarkerCategorys()) {
+    for (odb::dbMarkerCategory* subcategory : category->getMarkerCategories()) {
       populateCategory(subcategory, model_->invisibleRootItem());
     }
   }
@@ -269,18 +288,18 @@ void DRCWidget::populateCategory(odb::dbMarkerCategory* category,
     return;
   }
 
-  auto makeItem = [](const QString& text) {
+  auto make_item = [](const QString& text) {
     QStandardItem* item = new QStandardItem(text);
     item->setEditable(false);
     item->setSelectable(false);
     return item;
   };
 
-  QStandardItem* type_group = makeItem(category->getName());
+  QStandardItem* type_group = make_item(category->getName());
   type_group->setCheckable(true);
   type_group->setCheckState(Qt::Checked);
 
-  for (odb::dbMarkerCategory* subcategory : category->getMarkerCategorys()) {
+  for (odb::dbMarkerCategory* subcategory : category->getMarkerCategories()) {
     populateCategory(subcategory, type_group);
   }
 
@@ -288,11 +307,11 @@ void DRCWidget::populateCategory(odb::dbMarkerCategory* category,
   QStandardItem* marker_item_child = nullptr;
   for (odb::dbMarker* marker : category->getMarkers()) {
     QStandardItem* marker_item
-        = makeItem(QString::fromStdString(marker->getName()));
+        = make_item(QString::fromStdString(marker->getName()));
     marker_item_child = marker_item;
     marker_item->setSelectable(true);
     marker_item->setData(QVariant::fromValue(marker));
-    QStandardItem* marker_index = makeItem(QString::number(violation_idx++));
+    QStandardItem* marker_index = make_item(QString::number(violation_idx++));
     marker_index->setData(QVariant::fromValue(marker));
     marker_index->setCheckable(true);
     marker_index->setCheckState(marker->isVisible() ? Qt::Checked
@@ -307,7 +326,7 @@ void DRCWidget::populateCategory(odb::dbMarkerCategory* category,
 
   model->appendRow(
       {type_group,
-       makeItem(QString::number(category->getMarkerCount()) + " markers")});
+       make_item(QString::number(category->getMarkerCount()) + " markers")});
 }
 
 void DRCWidget::updateSelection(const Selected& selection)
@@ -399,9 +418,9 @@ void DRCWidget::updateMarkerGroupsWithIgnore(odb::dbMarkerCategory* ignore)
     return;
   }
 
-  const std::string currentText = categories_->currentText().toStdString();
+  const std::string current_text = categories_->currentText().toStdString();
   const bool remove_current
-      = ignore != nullptr && ignore->getName() == currentText;
+      = ignore != nullptr && ignore->getName() == current_text;
 
   categories_->clear();
 
@@ -416,7 +435,7 @@ void DRCWidget::updateMarkerGroupsWithIgnore(odb::dbMarkerCategory* ignore)
   if (remove_current) {
     categories_->setCurrentText("");
   } else {
-    categories_->setCurrentText(QString::fromStdString(currentText));
+    categories_->setCurrentText(QString::fromStdString(current_text));
   }
 }
 
@@ -465,12 +484,12 @@ void DRCRenderer::drawObjects(Painter& painter)
   DbMarkerDescriptor* desc
       = (DbMarkerDescriptor*) Gui::get()->getDescriptor<odb::dbMarker*>();
 
-  Painter::Color pen_color = Painter::white;
+  Painter::Color pen_color = Painter::kWhite;
   Painter::Color brush_color = pen_color;
   brush_color.a = 50;
 
   painter.setPen(pen_color, true, 0);
-  painter.setBrush(brush_color, Painter::Brush::DIAGONAL);
+  painter.setBrush(brush_color, Painter::Brush::kDiagonal);
   for (odb::dbMarker* marker : category_->getAllMarkers()) {
     if (!marker->isVisible()) {
       continue;

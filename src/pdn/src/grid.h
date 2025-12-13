@@ -12,6 +12,7 @@
 
 #include "odb/db.h"
 #include "odb/dbTypes.h"
+#include "odb/geom.h"
 #include "shape.h"
 #include "via.h"
 
@@ -26,6 +27,7 @@ class Straps;
 class Connect;
 class GridComponent;
 class GridSwitchedPower;
+class PadDirectConnectionStraps;
 
 class PdnGen;
 
@@ -136,14 +138,16 @@ class Grid
 
   void resetShapes();
 
-  void writeToDb(const std::map<odb::dbNet*, odb::dbSWire*>& net_map,
-                 bool do_pins,
-                 const Shape::ObstructionTreeMap& obstructions) const;
+  std::map<Shape*, std::vector<odb::dbBox*>> writeToDb(
+      const std::map<odb::dbNet*, odb::dbSWire*>& net_map,
+      bool do_pins,
+      const Shape::ObstructionTreeMap& obstructions) const;
   void makeRoutingObstructions(odb::dbBlock* block) const;
 
   static void makeInitialObstructions(odb::dbBlock* block,
                                       ShapeVectorMap& obs,
                                       const std::set<odb::dbInst*>& skip_insts,
+                                      const std::set<odb::dbNet*>& skip_nets,
                                       utl::Logger* logger);
   static void makeInitialShapes(odb::dbBlock* block,
                                 ShapeVectorMap& shapes,
@@ -151,7 +155,7 @@ class Grid
 
   virtual bool isReplaceable() const { return false; }
 
-  void checkSetup() const;
+  virtual void checkSetup() const;
 
   void setSwitchedPower(GridSwitchedPower* cell);
 
@@ -249,6 +253,7 @@ class InstanceGrid : public Grid
   bool isReplaceable() const override { return replaceable_; }
 
   virtual bool isValid() const;
+  void checkSetup() const override;
 
   static ShapeVectorMap getInstanceObstructions(odb::dbInst* inst,
                                                 const Halo& halo

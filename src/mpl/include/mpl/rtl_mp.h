@@ -35,14 +35,12 @@ struct Rect;
 class MacroPlacer
 {
  public:
-  MacroPlacer();
+  MacroPlacer(sta::dbNetwork* network,
+              odb::dbDatabase* db,
+              sta::dbSta* sta,
+              utl::Logger* logger,
+              par::PartitionMgr* tritonpart);
   ~MacroPlacer();
-
-  void init(sta::dbNetwork* network,
-            odb::dbDatabase* db,
-            sta::dbSta* sta,
-            utl::Logger* logger,
-            par::PartitionMgr* tritonpart);
 
   bool place(int num_threads,
              int max_num_macro,
@@ -53,7 +51,6 @@ class MacroPlacer
              int max_num_level,
              float coarsening_ratio,
              int large_net_threshold,
-             int signature_net_threshold,
              float halo_width,
              float halo_height,
              float fence_lx,
@@ -68,11 +65,11 @@ class MacroPlacer
              float boundary_weight,
              float notch_weight,
              float macro_blockage_weight,
-             float pin_access_th,
              float target_util,
              float target_dead_space,
              float min_ar,
-             const char* report_directory);
+             const char* report_directory,
+             bool keep_clustering_data);
 
   void placeMacro(odb::dbInst* inst,
                   const float& x_origin,

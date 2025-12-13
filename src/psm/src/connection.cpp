@@ -3,6 +3,7 @@
 
 #include "connection.h"
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <string>
@@ -203,15 +204,23 @@ TermConnection::TermConnection(Node* node0, Node* node1)
 {
 }
 
-Connection::Resistance TermConnection::getResistance(
-    const ResistanceMap& res_map) const
-{
-  return resistance_;
-}
-
 std::string TermConnection::describe() const
 {
   return "Terminal Connection";
+}
+
+/////////////////////////////
+
+FixedResistanceConnection::FixedResistanceConnection(Node* node0,
+                                                     Node* node1,
+                                                     Resistance resistance)
+    : Connection(node0, node1), res_(resistance)
+{
+}
+
+std::string FixedResistanceConnection::describe() const
+{
+  return "Fixed Resistance Connection";
 }
 
 }  // namespace psm

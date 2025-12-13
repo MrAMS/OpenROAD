@@ -1,47 +1,26 @@
-///////////////////////////////////////////////////////////////////////////////
-// BSD 3-Clause License
-//
-// Copyright (c) 2023, Google LLC
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions are met:
-//
-// * Redistributions of source code must retain the above copyright notice, this
-//   list of conditions and the following disclaimer.
-//
-// * Redistributions in binary form must reproduce the above copyright notice,
-//   this list of conditions and the following disclaimer in the documentation
-//   and/or other materials provided with the distribution.
-//
-// * Neither the name of the copyright holder nor the names of its
-//   contributors may be used to endorse or promote products derived from
-//   this software without specific prior written permission.
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-// ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
-// LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-// CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-// SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
-// INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
-// CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
-// ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-// POSSIBILITY OF SUCH DAMAGE.
+// SPDX-License-Identifier: BSD-3-Clause
+// Copyright (c) 2023-2025, The OpenROAD Authors
 
-#include <boost/asio.hpp>
-#include <boost/beast.hpp>
+#include <cstdint>
+#include <cstdio>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
+#include <ios>
+#include <iterator>
 #include <memory>
 #include <numeric>
+#include <ostream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
+#include "boost/asio.hpp"
+#include "boost/beast.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "utl/CFileUtils.h"
+#include "utl/Logger.h"
 #include "utl/ScopedTemporaryFile.h"
 #include "utl/prometheus/gauge.h"
 
@@ -142,20 +121,38 @@ TEST(Utl, read_all_of_file_exactly_1025B)
   }
 }
 
-// Add new tests for StreamHandler
+// Add new tests for OutStreamHandler
 TEST(Utl, stream_handler_write_and_read)
 {
   const char* filename = "test_write_and_read.txt";
   const std::string kTestData = "\x1\x2\x3\x4";
 
   {
-    StreamHandler sh(filename);
-    std::ofstream& os = sh.getStream();
+    OutStreamHandler sh(filename);
+    std::ostream& os = sh.getStream();
     os.write(kTestData.c_str(), kTestData.size());
   }
 
-  std::ifstream is(filename, std::ios_base::binary);
-  std::string contents((std::istreambuf_iterator<char>(is)),
+  InStreamHandler ish(filename);
+  std::string contents((std::istreambuf_iterator<char>(ish.getStream())),
+                       std::istreambuf_iterator<char>());
+  EXPECT_EQ(contents, kTestData);
+  std::filesystem::remove(filename);
+}
+
+TEST(Utl, stream_handler_write_and_read_gzip)
+{
+  const char* filename = "test_write_and_read.txt.gz";
+  const std::string kTestData = "\x1\x2\x3\x4";
+
+  {
+    OutStreamHandler sh(filename);
+    std::ostream& os = sh.getStream();
+    os.write(kTestData.c_str(), kTestData.size());
+  }
+
+  InStreamHandler ish(filename);
+  std::string contents((std::istreambuf_iterator<char>(ish.getStream())),
                        std::istreambuf_iterator<char>());
   EXPECT_EQ(contents, kTestData);
   std::filesystem::remove(filename);
@@ -168,7 +165,7 @@ TEST(Utl, stream_handler_temp_file_handling)
 
   // Check that the temp file is created
   {
-    StreamHandler sh(filename);
+    OutStreamHandler sh(filename);
     EXPECT_TRUE(std::filesystem::exists(tmp_filename));
   }
 
@@ -184,7 +181,7 @@ TEST(Utl, stream_handler_exception_handling)
 
   // Ensure the temporary file is handled correctly if an exception occurs
   try {
-    StreamHandler sh(filename);
+    OutStreamHandler sh(filename);
     throw std::runtime_error("Simulated exception");
   } catch (...) {
     std::string tmp_filename = std::string(filename) + ".1";

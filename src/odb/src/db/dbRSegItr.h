@@ -3,31 +3,31 @@
 
 #pragma once
 
+#include "dbCore.h"
 #include "odb/dbIterator.h"
 #include "odb/odb.h"
 
 namespace odb {
 
 class _dbRSeg;
-template <class T>
-class dbTable;
 
 class dbRSegItr : public dbIterator
 {
-  dbTable<_dbRSeg>* _seg_tbl;
-
  public:
-  dbRSegItr(dbTable<_dbRSeg>* seg_tbl) { _seg_tbl = seg_tbl; }
+  dbRSegItr(dbTable<_dbRSeg, 4096>* seg_tbl) { _seg_tbl = seg_tbl; }
 
-  bool reversible() override;
-  bool orderReversed() override;
+  bool reversible() const override;
+  bool orderReversed() const override;
   void reverse(dbObject* parent) override;
-  uint sequential() override;
-  uint size(dbObject* parent) override;
-  uint begin(dbObject* parent) override;
-  uint end(dbObject* parent) override;
-  uint next(uint id, ...) override;
+  uint sequential() const override;
+  uint size(dbObject* parent) const override;
+  uint begin(dbObject* parent) const override;
+  uint end(dbObject* parent) const override;
+  uint next(uint id, ...) const override;
   dbObject* getObject(uint id, ...) override;
+
+ private:
+  dbTable<_dbRSeg, 4096>* _seg_tbl;
 };
 
 }  // namespace odb

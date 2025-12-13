@@ -3,15 +3,21 @@
 
 #pragma once
 
+#include <QColor>
 #include <QMutex>
 #include <QPainter>
+#include <QString>
 #include <QThread>
 #include <QWaitCondition>
+#include <map>
 #include <mutex>
+#include <utility>
 #include <vector>
 
 #include "gui/gui.h"
+#include "label.h"
 #include "odb/db.h"
+#include "odb/geom.h"
 #include "ruler.h"
 #include "utl/Logger.h"
 
@@ -32,7 +38,8 @@ class RenderThread : public QThread
   void render(const QRect& draw_rect,
               const SelectionSet& selected,
               const HighlightSet& highlighted,
-              const Rulers& rulers);
+              const Rulers& rulers,
+              const Labels& labels);
 
   void exit();
 
@@ -42,6 +49,7 @@ class RenderThread : public QThread
             const SelectionSet& selected,
             const HighlightSet& highlighted,
             const Rulers& rulers,
+            const Labels& labels,
             qreal render_ratio,
             const QColor& background);
 
@@ -56,10 +64,14 @@ class RenderThread : public QThread
 
   void setupIOPins(odb::dbBlock* block, const odb::Rect& bounds);
 
-  void drawBlock(QPainter* painter,
-                 odb::dbBlock* block,
+  void drawChips(QPainter* painter,
+                 odb::dbChip* chip,
                  const odb::Rect& bounds,
                  int depth);
+  void drawChip(QPainter* painter,
+                odb::dbChip* chip,
+                const odb::Rect& bounds,
+                int depth);
   void drawLayer(QPainter* painter,
                  odb::dbBlock* block,
                  odb::dbTechLayer* layer,
@@ -120,6 +132,7 @@ class RenderThread : public QThread
   void drawModuleView(QPainter* painter,
                       const std::vector<odb::dbInst*>& insts);
   void drawRulers(Painter& painter, const Rulers& rulers);
+  void drawLabels(Painter& painter, const Labels& labels);
 
   bool instanceBelowMinSize(odb::dbInst* inst);
 
@@ -141,6 +154,7 @@ class RenderThread : public QThread
   SelectionSet selected_;
   HighlightSet highlighted_;
   Rulers rulers_;
+  Labels labels_;
 
   QMutex mutex_;
   QWaitCondition condition_;

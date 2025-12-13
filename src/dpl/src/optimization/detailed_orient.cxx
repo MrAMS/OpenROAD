@@ -4,15 +4,18 @@
 #include "detailed_orient.h"
 
 #include <algorithm>
-#include <boost/tokenizer.hpp>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <string>
 #include <vector>
 
+#include "boost/tokenizer.hpp"
 #include "detailed_manager.h"
+#include "dpl/Opendp.h"
 #include "infrastructure/architecture.h"
 #include "infrastructure/detailed_segment.h"
+#include "odb/dbTypes.h"
 #include "util/symmetry.h"
 #include "util/utility.h"
 #include "utl/Logger.h"
@@ -66,6 +69,9 @@ void DetailedOrient::run(DetailedMgr* mgrPtr, std::vector<std::string>& args)
   mgrPtr_->getLogger()->info(DPL, 380, "Cell flipping.");
   uint64_t hpwl_x, hpwl_y;
   int64_t init_hpwl = Utility::hpwl(network_, hpwl_x, hpwl_y);
+  if (init_hpwl == 0) {
+    return;
+  }
 
   // Orient cells correctly for each row.
   int changed = 0;
@@ -149,6 +155,8 @@ int DetailedOrient::orientCells(int& changed)
 ////////////////////////////////////////////////////////////////////////////////
 bool DetailedOrient::orientMultiHeightCellForRow(Node* ndi, int row)
 {
+  using odb::dbOrientType;
+
   // Takes a multi height cell and fixes its orientation so
   // that it is correct/agrees with the power stripes.
   // Return true is orientation is okay, otherwise false to
@@ -207,8 +215,10 @@ bool DetailedOrient::orientSingleHeightCellForRow(Node* ndi, int row)
     return false;
   }
 
-  unsigned rowOri = arch_->getRow(row)->getOrient();
-  unsigned cellOri = ndi->getOrient();
+  const unsigned rowOri = arch_->getRow(row)->getOrient();
+  const unsigned cellOri = ndi->getOrient();
+
+  using odb::dbOrientType;
 
   if (rowOri == dbOrientType::R0 || rowOri == dbOrientType::MY) {
     if (cellOri == dbOrientType::R0 || cellOri == dbOrientType::MY) {
@@ -342,6 +352,7 @@ int DetailedOrient::flipCells()
           || ndi->getRight() + leftPadding > rx) {
         continue;
       }
+      using odb::dbOrientType;
       dbOrientType orig_orient = ndi->getOrient();
       dbOrientType flipped_orient;
       switch (orig_orient) {
@@ -362,7 +373,7 @@ int DetailedOrient::flipCells()
           break;
       }
       ndi->adjustCurrOrient(flipped_orient);
-      if (mgrPtr_->hasEdgeSpacingViolation(ndi)) {
+      if (mgrPtr_->hasPlacementViolation(ndi)) {
         ndi->adjustCurrOrient(orig_orient);
         continue;
       }
@@ -398,8 +409,10 @@ unsigned DetailedOrient::orientFind(Node* ndi, int row)
   // orientation, but this might be a little smarter if cells have been flipped
   // around the Y-axis previously to improve WL...
 
-  unsigned rowOri = arch_->getRow(row)->getOrient();
-  unsigned cellOri = ndi->getOrient();
+  const unsigned rowOri = arch_->getRow(row)->getOrient();
+  const unsigned cellOri = ndi->getOrient();
+
+  using odb::dbOrientType;
 
   if (rowOri == dbOrientType::R0 || rowOri == dbOrientType::MY) {
     if (cellOri == dbOrientType::R0 || cellOri == dbOrientType::MY) {
@@ -431,6 +444,7 @@ bool DetailedOrient::isLegalSym(unsigned rowOri,
                                 unsigned siteSym,
                                 unsigned cellOri)
 {
+  using odb::dbOrientType;
   // Messy...
   if (siteSym == Symmetry_Y) {
     if (rowOri == dbOrientType::R0) {

@@ -4,7 +4,9 @@
 #include "Grid.h"
 
 #include <cmath>
-#include <complex>
+
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
 
 namespace grt {
 
@@ -24,15 +26,11 @@ void Grid::init(const odb::Rect& die_area,
   perfect_regular_y_ = perfect_regular_y;
   num_layers_ = num_layers;
   track_pitches_.resize(num_layers);
-  horizontal_edges_capacities_.resize(num_layers);
-  vertical_edges_capacities_.resize(num_layers);
 }
 
 void Grid::clear()
 {
   track_pitches_.clear();
-  horizontal_edges_capacities_.clear();
-  vertical_edges_capacities_.clear();
 }
 
 odb::Point Grid::getPositionOnGrid(const odb::Point& position)
@@ -41,14 +39,16 @@ odb::Point Grid::getPositionOnGrid(const odb::Point& position)
   int y = position.y();
 
   // Computing x and y center:
-  int gcell_id_x = floor((float) ((x - die_area_.xMin()) / tile_size_));
-  int gcell_id_y = floor((float) ((y - die_area_.yMin()) / tile_size_));
+  int gcell_id_x = (x - die_area_.xMin()) / tile_size_;
+  int gcell_id_y = (y - die_area_.yMin()) / tile_size_;
 
-  if (gcell_id_x >= x_grids_)
+  if (gcell_id_x >= x_grids_) {
     gcell_id_x--;
+  }
 
-  if (gcell_id_y >= y_grids_)
+  if (gcell_id_y >= y_grids_) {
     gcell_id_y--;
+  }
 
   int center_x
       = (gcell_id_x * tile_size_) + (tile_size_ / 2) + die_area_.xMin();
@@ -186,6 +186,13 @@ odb::Point Grid::getMiddle()
 const odb::Rect& Grid::getGridArea() const
 {
   return die_area_;
+}
+
+odb::Point Grid::getPositionFromGridPoint(const int x, const int y)
+{
+  int x_loc = (tile_size_ * (x + 0.5)) + getXMin();
+  int y_loc = (tile_size_ * (y + 0.5)) + getYMin();
+  return odb::Point(x_loc, y_loc);
 }
 
 }  // namespace grt

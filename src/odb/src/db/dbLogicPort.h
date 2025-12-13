@@ -8,6 +8,7 @@
 
 #include "dbCore.h"
 #include "dbVector.h"
+#include "odb/dbId.h"
 #include "odb/odb.h"
 
 namespace odb {
@@ -20,15 +21,13 @@ class _dbLogicPort : public _dbObject
  public:
   _dbLogicPort(_dbDatabase*);
 
-  ~_dbLogicPort();
-
   bool operator==(const _dbLogicPort& rhs) const;
   bool operator!=(const _dbLogicPort& rhs) const { return !operator==(rhs); }
   bool operator<(const _dbLogicPort& rhs) const;
   void collectMemInfo(MemInfo& info);
 
-  char* _name;
-  dbId<_dbLogicPort> _next_entry;
+  char* name_;
+  dbId<_dbLogicPort> next_entry_;
   std::string direction;
 };
 dbIStream& operator>>(dbIStream& stream, _dbLogicPort& obj);

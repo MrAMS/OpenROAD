@@ -7,11 +7,11 @@
 #include <map>
 
 #include "dbCore.h"
+#include "dbVector.h"
 #include "odb/db.h"
+#include "odb/dbId.h"
 #include "odb/odb.h"
 // User Code Begin Includes
-#include <map>
-
 #include "dbVector.h"
 #include "odb/dbMatrix.h"
 // User Code End Includes
@@ -27,9 +27,9 @@ class _dbTechLayer;
 
 struct dbGCellGridFlags
 {
-  bool x_grid_valid_ : 1;
-  bool y_grid_valid_ : 1;
-  uint spare_bits_ : 30;
+  bool x_grid_valid : 1;
+  bool y_grid_valid : 1;
+  uint spare_bits : 30;
 };
 
 class _dbGCellGrid : public _dbObject

@@ -3,16 +3,12 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace fin {
+
 class Finale;
-}
 
-namespace ord {
+void initFinale(Tcl_Interp* tcl_interp);
 
-class OpenRoad;
-
-fin::Finale* makeFinale();
-void initFinale(OpenRoad* openroad);
-void deleteFinale(fin::Finale* finale);
-
-}  // namespace ord
+}  // namespace fin

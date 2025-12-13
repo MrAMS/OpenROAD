@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include "abc_library_factory.h"
 #include "base/abc/abc.h"
 #include "db_sta/dbSta.hh"
 #include "logic_optimization_strategy.h"
@@ -12,20 +11,20 @@
 
 namespace rmp {
 
+void AbcPrintStats(const abc::Abc_Ntk_t* ntk);
+utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> BufferNetwork(
+    abc::Abc_Ntk_t* ntk,
+    cut::AbcLibrary& abc_sc_library);
+
 class DelayOptimizationStrategy : public LogicOptimizationStrategy
 {
  public:
   ~DelayOptimizationStrategy() override = default;
 
-  DelayOptimizationStrategy(sta::dbSta* sta) : sta_(sta) {}
-
   utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> Optimize(
       const abc::Abc_Ntk_t* ntk,
-      AbcLibrary& abc_library,
+      cut::AbcLibrary& abc_library,
       utl::Logger* logger) override;
-
- private:
-  sta::dbSta* sta_;
 };
 
 }  // namespace rmp

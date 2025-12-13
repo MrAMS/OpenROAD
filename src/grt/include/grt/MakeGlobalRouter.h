@@ -3,18 +3,23 @@
 
 #pragma once
 
-namespace grt {
-class GlobalRouter;
+#include "tcl.h"
+
+namespace odb {
+class dbDatabase;
 }
 
-namespace ord {
+namespace utl {
+class Logger;
+}  // namespace utl
 
-class OpenRoad;
+namespace grt {
 
-grt::GlobalRouter* makeGlobalRouter();
+class GlobalRouter;
 
-void initGlobalRouter(OpenRoad* openroad);
+// Does GUI dependency injection
+void initGui(grt::GlobalRouter* grt, odb::dbDatabase* db, utl::Logger* logger);
 
-void deleteGlobalRouter(grt::GlobalRouter* global_router);
+void initTcl(Tcl_Interp* tcl_interp);
 
-}  // namespace ord
+}  // namespace grt

@@ -3,27 +3,33 @@
 
 #include "RDLRouter.h"
 
-#include <boost/geometry.hpp>
-#include <boost/geometry/geometries/point_xy.hpp>
-#include <boost/graph/astar_search.hpp>
-#include <boost/graph/lookup_edge.hpp>
-#include <boost/polygon/polygon.hpp>
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
-#include <limits>
 #include <list>
 #include <map>
 #include <memory>
 #include <queue>
 #include <set>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "RDLGui.h"
 #include "RDLRoute.h"
 #include "Utilities.h"
+#include "boost/geometry/geometries/point_xy.hpp"
+#include "boost/geometry/geometry.hpp"
+#include "boost/graph/astar_search.hpp"
+#include "boost/graph/lookup_edge.hpp"
+#include "boost/polygon/polygon.hpp"
 #include "odb/db.h"
+#include "odb/dbObject.h"
 #include "odb/dbTransform.h"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
 #include "pad/ICeWall.h"
 #include "utl/Logger.h"
 
@@ -34,9 +40,9 @@ class RDLRouterDistanceHeuristic
 {
  public:
   RDLRouterDistanceHeuristic(
-      const std::map<grid_vertex, odb::Point>& vertex_map,
-      const std::vector<grid_vertex>& predecessor,
-      const grid_vertex& start_vertex,
+      const std::map<GridGraphVertex, odb::Point>& vertex_map,
+      const std::vector<GridGraphVertex>& predecessor,
+      const GridGraphVertex& start_vertex,
       const odb::Point& goal,
       float turn_penalty)
       : vertex_map_(vertex_map),
@@ -46,7 +52,7 @@ class RDLRouterDistanceHeuristic
         turn_penalty_(turn_penalty)
   {
   }
-  int64_t operator()(grid_vertex vt_next)
+  int64_t operator()(GridGraphVertex vt_next)
   {
     const auto& pt_next = vertex_map_.at(vt_next);
 
@@ -79,9 +85,9 @@ class RDLRouterDistanceHeuristic
   }
 
  private:
-  const std::map<grid_vertex, odb::Point>& vertex_map_;
-  const std::vector<grid_vertex>& predecessor_;
-  const grid_vertex& start_vertex_;
+  const std::map<GridGraphVertex, odb::Point>& vertex_map_;
+  const std::vector<GridGraphVertex>& predecessor_;
+  const GridGraphVertex& start_vertex_;
   odb::Point goal_;
   const float turn_penalty_;
 };
@@ -95,7 +101,7 @@ template <class Vertex>
 class RDLRouterGoalVisitor : public boost::default_astar_visitor
 {
  public:
-  explicit RDLRouterGoalVisitor(grid_vertex goal) : goal_(goal) {}
+  explicit RDLRouterGoalVisitor(GridGraphVertex goal) : goal_(goal) {}
   template <class Graph>
   void examine_vertex(Vertex u, Graph& g)
   {
@@ -105,7 +111,7 @@ class RDLRouterGoalVisitor : public boost::default_astar_visitor
   }
 
  private:
-  grid_vertex goal_;
+  GridGraphVertex goal_;
 };
 
 //////////////////////////////////////////////////////////////
@@ -210,8 +216,9 @@ int RDLRouter::getRoutingInstanceCount() const
   std::set<odb::dbInst*> insts;
   for (const auto& route : routes_) {
     if (route->isRouted()) {
-      insts.insert(route->getRouteTargetSource()->terminal->getInst());
-      insts.insert(route->getRouteTargetDestination()->terminal->getInst());
+      for (odb::dbITerm* iterm : route->getRoutedTerminals()) {
+        insts.insert(iterm->getInst());
+      }
     } else {
       insts.insert(route->getTerminal()->getInst());
       for (const auto* iterm : route->getTerminals()) {
@@ -227,8 +234,9 @@ std::set<odb::dbInst*> RDLRouter::getRoutedInstances() const
   std::set<odb::dbInst*> insts;
   for (const auto& route : routes_) {
     if (route->isRouted()) {
-      insts.insert(route->getRouteTargetSource()->terminal->getInst());
-      insts.insert(route->getRouteTargetDestination()->terminal->getInst());
+      for (odb::dbITerm* iterm : route->getRoutedTerminals()) {
+        insts.insert(iterm->getInst());
+      }
     }
   }
   return insts;
@@ -240,13 +248,10 @@ std::vector<RDLRouter::RDLRoutePtr> RDLRouter::getFailedRoutes() const
   std::set<odb::dbInst*> success_covers;
   for (auto& route : routes_) {
     if (route->isRouted()) {
-      if (isCoverTerm(route->getRouteTargetSource()->terminal)) {
-        success_covers.insert(
-            route->getRouteTargetSource()->terminal->getInst());
-      }
-      if (isCoverTerm(route->getRouteTargetDestination()->terminal)) {
-        success_covers.insert(
-            route->getRouteTargetDestination()->terminal->getInst());
+      for (odb::dbITerm* iterm : route->getRoutedTerminals()) {
+        if (isCoverTerm(iterm)) {
+          success_covers.insert(iterm->getInst());
+        }
       }
     }
   }
@@ -361,12 +366,19 @@ void RDLRouter::route(const std::vector<odb::dbNet*>& nets)
   // Build list of routes
   buildIntialRouteSet();
 
+  // Process preprocessing
+  for (const auto& route : routes_) {
+    route->preprocess(layer_, logger_);
+  }
+
   // create priority queue
   auto route_compare
       = [](const std::shared_ptr<RDLRoute>& lhs,
            const std::shared_ptr<RDLRoute>& rhs) { return lhs->compare(rhs); };
-  std::priority_queue route_queue(
-      routes_.begin(), routes_.end(), route_compare);
+  std::priority_queue<RDLRoutePtr,
+                      std::vector<RDLRoutePtr>,
+                      decltype(route_compare)>
+      route_queue;
 
   logger_->info(utl::PAD, 5, "Routing {} nets", nets.size());
 
@@ -379,6 +391,29 @@ void RDLRouter::route(const std::vector<odb::dbNet*>& nets)
   // track iteration information
   int iteration_count = 0;
   std::set<odb::dbInst*> last_itr_routed;
+
+  // add initial queue
+  for (const auto& route : routes_) {
+    if (route->isRouted()) {
+      for (odb::dbITerm* iterm0 : route->getRoutedTerminals()) {
+        if (isCoverTerm(iterm0)) {
+          routed_covers.insert(iterm0->getInst());
+        } else {
+          routed_non_covers.insert(iterm0);
+        }
+        for (odb::dbITerm* iterm1 : route->getRoutedTerminals()) {
+          if (iterm0 == iterm1) {
+            continue;
+          }
+          routed_pairs[iterm0] = iterm1;
+          routed_pairs[iterm1] = iterm0;
+        }
+      }
+    } else {
+      // Only add routes that need to routed
+      route_queue.push(route);
+    }
+  }
   while (!route_queue.empty()) {
     RDLRoutePtr route = route_queue.top();
     odb::dbITerm* src = route->getTerminal();
@@ -632,15 +667,23 @@ void RDLRouter::route(const std::vector<odb::dbNet*>& nets)
 
   // remove old routes
   for (const auto& route : routes_) {
-    route->getNet()->destroySWires();
+    auto swires = route->getNet()->getSWires();
+    for (auto itr = swires.begin(); itr != swires.end();) {
+      if ((*itr)->getWireType() == odb::dbWireType::FIXED) {
+        itr++;
+        continue;
+      }
+      itr = odb::dbSWire::destroy(itr);
+    }
   }
 
   for (const auto& route : routes_) {
     if (route->isRouted()) {
       writeToDb(route->getNet(),
                 route->getRoutePoints(),
-                *route->getRouteTargetSource(),
-                *route->getRouteTargetDestination());
+                route->getRouteTargetSource(),
+                route->getRouteTargetDestination(),
+                route->getStubs());
     }
   }
 
@@ -760,7 +803,15 @@ void RDLRouter::populateTerminalAccessPoints(RouteTarget& target) const
 
         for (const auto& edge : getVertexEdges(itr->second)) {
           const odb::Point& pt0 = vertex_point_map_.at(edge.m_source);
+          if (pt0 == line.pt0() || pt0 == line.pt1()) {
+            // lines will connect, so keep
+            continue;
+          }
           const odb::Point& pt1 = vertex_point_map_.at(edge.m_target);
+          if (pt1 == line.pt0() || pt1 == line.pt1()) {
+            // lines will connect, so keep
+            continue;
+          }
           const odb::Line edge_line(pt0, pt1);
 
           if (boost::geometry::intersects(line.getPoints(),
@@ -886,7 +937,7 @@ RDLRouter::TerminalAccess RDLRouter::insertTerminalAccess(
   }
 
   for (const odb::Point& snap : snap_pts) {
-    std::vector<grid_vertex> vertex_to_modify;
+    std::vector<GridGraphVertex> vertex_to_modify;
 
     // remove intersecting edges
     for (auto itr
@@ -1028,9 +1079,10 @@ bool RDLRouter::is45DegreeEdge(const odb::Point& pt0,
   return pt0.x() != pt1.x() && pt0.y() != pt1.y();
 }
 
-std::set<grid_edge> RDLRouter::getVertexEdges(const grid_vertex& vertex) const
+std::set<GridGraphEdge> RDLRouter::getVertexEdges(
+    const GridGraphVertex& vertex) const
 {
-  std::set<grid_edge> edges;
+  std::set<GridGraphEdge> edges;
 
   GridGraph::out_edge_iterator oit, oend;
   std::tie(oit, oend) = boost::out_edges(vertex, graph_);
@@ -1047,9 +1099,9 @@ std::set<grid_edge> RDLRouter::getVertexEdges(const grid_vertex& vertex) const
 }
 
 std::vector<RDLRouter::GridEdge> RDLRouter::commitRoute(
-    const std::vector<grid_vertex>& route)
+    const std::vector<GridGraphVertex>& route)
 {
-  std::set<grid_edge> edges;
+  std::set<GridGraphEdge> edges;
   for (const auto& v : route) {
     const auto v_edges = getVertexEdges(v);
     edges.insert(v_edges.begin(), v_edges.end());
@@ -1058,7 +1110,7 @@ std::vector<RDLRouter::GridEdge> RDLRouter::commitRoute(
   // remove intersecting edges
   using Line = boost::geometry::model::segment<odb::Point>;
   auto handle_rect_edge
-      = [this, &edges](const odb::Rect& rect, const grid_edge& edge) {
+      = [this, &edges](const odb::Rect& rect, const GridGraphEdge& edge) {
           const odb::Point& lpt0 = vertex_point_map_[edge.m_source];
           const odb::Point& lpt1 = vertex_point_map_[edge.m_target];
           if (boost::geometry::intersects(rect, Line(lpt0, lpt1))) {
@@ -1085,7 +1137,7 @@ std::vector<RDLRouter::GridEdge> RDLRouter::commitRoute(
     // remove intersecting edges on 45 degrees
 
     auto handle_poly_edge
-        = [this, &edges](const odb::Polygon& poly, const grid_edge& edge) {
+        = [this, &edges](const odb::Polygon& poly, const GridGraphEdge& edge) {
             const odb::Point& lpt0 = vertex_point_map_[edge.m_source];
             const odb::Point& lpt1 = vertex_point_map_[edge.m_target];
             if (boost::geometry::intersects(poly, Line(lpt0, lpt1))) {
@@ -1122,7 +1174,7 @@ std::vector<RDLRouter::GridEdge> RDLRouter::commitRoute(
   return removed_edges;
 }
 
-RDLRouter::GridEdge RDLRouter::removeGraphEdge(const grid_edge& edge)
+RDLRouter::GridEdge RDLRouter::removeGraphEdge(const GridGraphEdge& edge)
 {
   const float weight = graph_weight_[edge];
   boost::remove_edge(edge, graph_);
@@ -1134,15 +1186,15 @@ RDLRouter::GridEdge RDLRouter::removeGraphEdge(const grid_edge& edge)
                          vertex_point_map_[edge.m_target])};
 }
 
-std::vector<grid_vertex> RDLRouter::run(const odb::Point& source,
-                                        const odb::Point& dest)
+std::vector<GridGraphVertex> RDLRouter::run(const odb::Point& source,
+                                            const odb::Point& dest)
 {
-  const int N = boost::num_vertices(graph_);
-  std::vector<grid_vertex> p(N);
-  std::vector<int64_t> d(N);
+  const int num_vertices = boost::num_vertices(graph_);
+  std::vector<GridGraphVertex> p(num_vertices);
+  std::vector<int64_t> d(num_vertices);
 
-  const grid_vertex& start = point_vertex_map_[source];
-  const grid_vertex& goal = point_vertex_map_[dest];
+  const GridGraphVertex& start = point_vertex_map_[source];
+  const GridGraphVertex& goal = point_vertex_map_[dest];
 
   debugPrint(logger_,
              utl::PAD,
@@ -1166,17 +1218,18 @@ std::vector<grid_vertex> RDLRouter::run(const odb::Point& source,
                 p.begin(), boost::get(boost::vertex_index, graph_)))
             .distance_map(boost::make_iterator_property_map(
                 d.begin(), boost::get(boost::vertex_index, graph_)))
-            .visitor(RDLRouterGoalVisitor<grid_vertex>(goal)));
+            .visitor(RDLRouterGoalVisitor<GridGraphVertex>(goal)));
   } catch (const RDLRouterGoalFound&) {  // found a path to the goal
-    std::list<grid_vertex> shortest_path;
-    for (grid_vertex v = goal;; v = p[v]) {
+    std::list<GridGraphVertex> shortest_path;
+    for (GridGraphVertex v = goal;; v = p[v]) {
       shortest_path.push_front(v);
       if (p[v] == v) {
         break;
       }
     }
 
-    std::vector<grid_vertex> route(shortest_path.begin(), shortest_path.end());
+    std::vector<GridGraphVertex> route(shortest_path.begin(),
+                                       shortest_path.end());
     return route;
   }
 
@@ -1191,18 +1244,13 @@ void RDLRouter::makeGraph()
 
   graph_weight_ = boost::get(boost::edge_weight, graph_);
 
-  std::vector<int> x_grid;
-  std::vector<int> y_grid;
-
   odb::dbTrackGrid* tracks = block_->findTrackGrid(layer_);
-  tracks->getGridX(x_grid);
-  tracks->getGridY(y_grid);
 
   // filter grid points based on spacing requirements
   const int pitch = width_ + spacing_ - 1;
   const int start = width_ / 2 + 1;
   x_grid_.clear();
-  for (const auto& x : x_grid) {
+  for (const auto& x : tracks->getGridX()) {
     bool add = false;
     if (x_grid_.empty()) {
       if (x >= start) {
@@ -1219,7 +1267,7 @@ void RDLRouter::makeGraph()
     }
   }
   y_grid_.clear();
-  for (const auto& y : y_grid) {
+  for (const auto& y : tracks->getGridY()) {
     bool add = false;
     if (y_grid_.empty()) {
       if (y >= start) {
@@ -1400,8 +1448,8 @@ bool RDLRouter::addGraphEdge(const odb::Point& point0,
                point1.y());
     return false;
   }
-  grid_vertex v0 = point0check->second;
-  grid_vertex v1 = point1check->second;
+  GridGraphVertex v0 = point0check->second;
+  GridGraphVertex v1 = point1check->second;
   if (v0 == v1) {
     return false;
   }
@@ -1420,7 +1468,7 @@ bool RDLRouter::addGraphEdge(const odb::Point& point0,
   }
 
   bool added;
-  grid_edge edge;
+  GridGraphEdge edge;
 
   bool exists;
   boost::tie(edge, exists) = boost::lookup_edge(v0, v1, graph_);
@@ -1461,28 +1509,28 @@ std::vector<std::pair<odb::Point, odb::Point>> RDLRouter::simplifyRoute(
 
   enum class Direction
   {
-    UNSET,
-    HORIZONTAL,
-    VERTICAL,
-    ANGLE45,
-    ANGLE135
+    kUnset,
+    kHorizontal,
+    kVertical,
+    kAngle45,
+    kAngle135
   };
 
   auto get_direction
       = [](const odb::Point& s, const odb::Point& t) -> Direction {
     if (s.y() == t.y()) {
-      return Direction::HORIZONTAL;
+      return Direction::kHorizontal;
     }
     if (s.x() == t.x()) {
-      return Direction::VERTICAL;
+      return Direction::kVertical;
     }
     if (s.x() < t.x() && s.y() < t.y()) {
-      return Direction::ANGLE45;
+      return Direction::kAngle45;
     }
     if (s.x() > t.x() && s.y() > t.y()) {
-      return Direction::ANGLE45;
+      return Direction::kAngle45;
     }
-    return Direction::ANGLE135;
+    return Direction::kAngle135;
   };
 
   wire.emplace_back(route[0], route[1]);
@@ -1499,8 +1547,8 @@ std::vector<std::pair<odb::Point, odb::Point>> RDLRouter::simplifyRoute(
     } else {
       // Determine if extentions are needed
       int extention = width_ / 2;
-      if (direction == Direction::HORIZONTAL
-          && segment_direction == Direction::VERTICAL) {
+      if (direction == Direction::kHorizontal
+          && segment_direction == Direction::kVertical) {
         const odb::Point& prev_s = wire.rbegin()->first;
         if (prev_s.x() < s.x()) {
           wire.rbegin()->second.setX(s.x() + extention);
@@ -1512,8 +1560,8 @@ std::vector<std::pair<odb::Point, odb::Point>> RDLRouter::simplifyRoute(
         } else {
           s.setY(s.y() + extention);
         }
-      } else if (direction == Direction::VERTICAL
-                 && segment_direction == Direction::HORIZONTAL) {
+      } else if (direction == Direction::kVertical
+                 && segment_direction == Direction::kHorizontal) {
         const odb::Point& prev_s = wire.rbegin()->first;
         if (prev_s.y() < s.y()) {
           wire.rbegin()->second.setY(s.y() + extention);
@@ -1557,80 +1605,97 @@ odb::Rect RDLRouter::correctEndPoint(const odb::Rect& route,
 
 void RDLRouter::writeToDb(odb::dbNet* net,
                           const std::vector<odb::Point>& route,
-                          const RouteTarget& source,
-                          const RouteTarget& target)
+                          const RouteTarget* source,
+                          const RouteTarget* target,
+                          const std::set<odb::Rect>& stubs)
 {
   Utilities::makeSpecial(net);
 
-  auto* swire = odb::dbSWire::create(net, odb::dbWireType::ROUTED);
-  const auto simplified_route = simplifyRoute(route);
-  for (size_t i = 0; i < simplified_route.size(); i++) {
-    const auto& [s, t] = simplified_route[i];
-    odb::Rect shape(s, t);
-    shape.bloat(width_ / 2, shape);
-    odb::dbSBox::Direction dir;
-    if (s.x() == t.x()) {
-      shape.set_ylo(shape.yMin() + width_ / 2);
-      shape.set_yhi(shape.yMax() - width_ / 2);
-      dir = odb::dbSBox::VERTICAL;
-    } else if (s.y() == t.y()) {
-      shape.set_xlo(shape.xMin() + width_ / 2);
-      shape.set_xhi(shape.xMax() - width_ / 2);
-      dir = odb::dbSBox::HORIZONTAL;
-    } else {
-      dir = odb::dbSBox::OCTILINEAR;
-    }
+  if (source == nullptr && target == nullptr && stubs.empty()) {
+    // Nothing to create a wire for, so return
+    return;
+  }
 
-    if (dir != odb::dbSBox::OCTILINEAR) {
-      if (i == 0) {
-        shape = correctEndPoint(shape, s.y() == t.y(), source.shape);
-      } else if (i + 1 == simplified_route.size()) {
-        shape = correctEndPoint(shape, s.y() == t.y(), target.shape);
+  odb::dbSWire* swire = odb::dbSWire::create(net, odb::dbWireType::ROUTED);
+  for (const odb::Rect& stub : stubs) {
+    odb::dbSBox::create(swire,
+                        layer_,
+                        stub.xMin(),
+                        stub.yMin(),
+                        stub.xMax(),
+                        stub.yMax(),
+                        odb::dbWireShapeType::IOWIRE);
+  }
+  if (source != nullptr && target != nullptr) {
+    const auto simplified_route = simplifyRoute(route);
+    for (size_t i = 0; i < simplified_route.size(); i++) {
+      const auto& [s, t] = simplified_route[i];
+      odb::Rect shape(s, t);
+      shape.bloat(width_ / 2, shape);
+      odb::dbSBox::Direction dir;
+      if (s.x() == t.x()) {
+        shape.set_ylo(shape.yMin() + (width_ / 2));
+        shape.set_yhi(shape.yMax() - (width_ / 2));
+        dir = odb::dbSBox::VERTICAL;
+      } else if (s.y() == t.y()) {
+        shape.set_xlo(shape.xMin() + (width_ / 2));
+        shape.set_xhi(shape.xMax() - (width_ / 2));
+        dir = odb::dbSBox::HORIZONTAL;
+      } else {
+        dir = odb::dbSBox::OCTILINEAR;
+      }
+
+      if (dir != odb::dbSBox::OCTILINEAR) {
+        if (i == 0) {
+          shape = correctEndPoint(shape, s.y() == t.y(), source->shape);
+        } else if (i + 1 == simplified_route.size()) {
+          shape = correctEndPoint(shape, s.y() == t.y(), target->shape);
+        }
+      }
+
+      if (dir != odb::dbSBox::OCTILINEAR) {
+        odb::dbSBox::create(swire,
+                            layer_,
+                            shape.xMin(),
+                            shape.yMin(),
+                            shape.xMax(),
+                            shape.yMax(),
+                            odb::dbWireShapeType::IOWIRE);
+      } else {
+        odb::dbSBox::create(swire,
+                            layer_,
+                            s.x(),
+                            s.y(),
+                            t.x(),
+                            t.y(),
+                            odb::dbWireShapeType::IOWIRE,
+                            odb::dbSBox::OCTILINEAR,
+                            width_);
       }
     }
 
-    if (dir != odb::dbSBox::OCTILINEAR) {
+    if (source->layer != layer_) {
+      odb::dbTechVia* via = pad_accessvia_;
+      if (isCoverTerm(source->terminal)) {
+        via = bump_accessvia_;
+      }
       odb::dbSBox::create(swire,
-                          layer_,
-                          shape.xMin(),
-                          shape.yMin(),
-                          shape.xMax(),
-                          shape.yMax(),
+                          via,
+                          source->center.x(),
+                          source->center.y(),
                           odb::dbWireShapeType::IOWIRE);
-    } else {
+    }
+    if (target->layer != layer_) {
+      odb::dbTechVia* via = pad_accessvia_;
+      if (isCoverTerm(target->terminal)) {
+        via = bump_accessvia_;
+      }
       odb::dbSBox::create(swire,
-                          layer_,
-                          s.x(),
-                          s.y(),
-                          t.x(),
-                          t.y(),
-                          odb::dbWireShapeType::IOWIRE,
-                          odb::dbSBox::OCTILINEAR,
-                          width_);
+                          via,
+                          target->center.x(),
+                          target->center.y(),
+                          odb::dbWireShapeType::IOWIRE);
     }
-  }
-
-  if (source.layer != layer_) {
-    odb::dbTechVia* via = pad_accessvia_;
-    if (isCoverTerm(source.terminal)) {
-      via = bump_accessvia_;
-    }
-    odb::dbSBox::create(swire,
-                        via,
-                        source.center.x(),
-                        source.center.y(),
-                        odb::dbWireShapeType::IOWIRE);
-  }
-  if (target.layer != layer_) {
-    odb::dbTechVia* via = pad_accessvia_;
-    if (isCoverTerm(target.terminal)) {
-      via = bump_accessvia_;
-    }
-    odb::dbSBox::create(swire,
-                        via,
-                        target.center.x(),
-                        target.center.y(),
-                        odb::dbWireShapeType::IOWIRE);
   }
 }
 
@@ -1738,11 +1803,13 @@ void RDLRouter::populateObstructions(const std::vector<odb::dbNet*>& nets)
   // Get already routed nets obstructions, excluding those that will be routed
   // now
   for (auto* net : block_->getNets()) {
-    if (std::find(nets.begin(), nets.end(), net) != nets.end()) {
-      continue;
-    }
+    const bool is_routing_net = std::ranges::find(nets, net) != nets.end();
 
     for (auto* swire : net->getSWires()) {
+      if (is_routing_net && swire->getWireType() != odb::dbWireType::FIXED) {
+        continue;
+      }
+
       for (auto* box : swire->getWires()) {
         if (box->getTechLayer() != layer_) {
           continue;

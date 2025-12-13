@@ -3,10 +3,12 @@
 
 #include "node.h"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 
 #include "odb/db.h"
+#include "odb/geom.h"
 #include "shape.h"
 
 namespace psm {
@@ -27,7 +29,7 @@ Node::CompareInformation Node::compareTuple() const
 
 Node::CompareInformation Node::dummyCompareTuple()
 {
-  return {-1, 0, 0, NodeType::Unknown, -1};
+  return {-1, 0, 0, NodeType::kUnknown, -1};
 }
 
 bool Node::compare(const Node* other) const
@@ -58,7 +60,7 @@ std::string Node::describe(const std::string& prefix) const
 
 double Node::getDBUs() const
 {
-  return layer_->getTech()->getLefUnits();
+  return layer_->getTech()->getDbUnitsPerMicron();
 }
 
 void Node::print(utl::Logger* logger, const std::string& prefix) const
@@ -79,15 +81,15 @@ std::string Node::getName() const
 std::string Node::getTypeName() const
 {
   switch (getType()) {
-    case NodeType::Node:
+    case NodeType::kNode:
       return "Node";
-    case NodeType::Source:
+    case NodeType::kSource:
       return "Source Node";
-    case NodeType::ITerm:
+    case NodeType::kITerm:
       return "ITerm Node";
-    case NodeType::BPin:
+    case NodeType::kBPin:
       return "BPin Node";
-    case NodeType::Unknown:
+    case NodeType::kUnknown:
       return "Unknown";
   }
 
@@ -129,16 +131,29 @@ std::string ITermNode::describe(const std::string& prefix) const
 
 ////////////////////
 
-BPinNode::BPinNode(odb::dbBPin* pin,
-                   const odb::Rect& shape,
-                   odb::dbTechLayer* layer)
-    : TerminalNode(shape, layer), pin_(pin)
+BPinNode::BPinNode(odb::dbBPin* pin, odb::dbBox* box, odb::dbTechLayer* layer)
+    : TerminalNode(box->getBox(), layer), pin_(pin), box_(box)
 {
 }
 
 int BPinNode::getTypeCompareInfo() const
 {
   return pin_->getId();
+}
+
+bool BPinNode::shouldConnect() const
+{
+  if (auto prop = odb::dbBoolProperty::find(pin_, kDisconnectProperty)) {
+    if (prop != nullptr && prop->getValue()) {
+      return false;
+    }
+  }
+  if (auto prop = odb::dbBoolProperty::find(box_, kDisconnectProperty)) {
+    if (prop != nullptr && prop->getValue()) {
+      return false;
+    }
+  }
+  return true;
 }
 
 }  // namespace psm

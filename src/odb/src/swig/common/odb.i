@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2019-2025, The OpenROAD Authors
 
+#ifdef BAZEL
+%module(package="src.odb") odb
+#endif
+
 %{
 #define SWIG_FILE_WITH_INIT
 #include "odb/geom.h"
@@ -15,6 +19,7 @@
 #include "odb/dbMap.h"
 #include "odb/dbSet.h"
 #include "odb/dbTypes.h"
+#include "odb/isotropy.h"
 #include "odb/geom.h"
 #include "odb/wOrder.h"
 #include "odb/util.h"
@@ -57,6 +62,7 @@ using namespace odb;
 %include "dbtypes.i"
 %include "dbtypes_common.i"
 
+%include "odb/isotropy.h"
 %include "odb/geom.h"
 %include "polygon.i"
 %include "odb/db.h"

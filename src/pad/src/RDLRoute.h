@@ -5,9 +5,11 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <vector>
 
 #include "RDLRouter.h"
+#include "odb/geom.h"
 
 namespace odb {
 class dbITerm;
@@ -21,8 +23,8 @@ class RDLRoute
  public:
   RDLRoute(odb::dbITerm* source, const std::vector<odb::dbITerm*>& dests);
 
-  void setRoute(const std::map<grid_vertex, odb::Point>& vertex_point_map,
-                const std::vector<grid_vertex>& vertex,
+  void setRoute(const std::map<GridGraphVertex, odb::Point>& vertex_point_map,
+                const std::vector<GridGraphVertex>& vertex,
                 const std::vector<RDLRouter::GridEdge>& removed_edges,
                 const RouteTarget* source,
                 const RouteTarget* target,
@@ -30,7 +32,7 @@ class RDLRoute
                 const RDLRouter::TerminalAccess& access_dest);
   void resetRoute();
 
-  bool isRouted() const { return !route_vertex_.empty(); }
+  bool isRouted() const { return routed_; }
   bool isFailed() const
   {
     return !route_pending_ && !isRouted() && !hasNextTerminal();
@@ -42,11 +44,15 @@ class RDLRoute
 
   void markRouting() { route_pending_ = false; }
 
+  void preprocess(odb::dbTechLayer* layer, utl::Logger* logger);
+
   int getPriority() const { return priority_; }
   odb::dbITerm* getTerminal() const { return iterm_; }
   odb::dbNet* getNet() const { return iterm_->getNet(); }
 
   const std::vector<odb::dbITerm*>& getTerminals() const { return terminals_; }
+  std::set<odb::dbITerm*> getRoutedTerminals() const;
+  const std::set<odb::Rect>& getStubs() const { return stubs_; }
 
   void increasePriority() { priority_++; }
 
@@ -57,7 +63,7 @@ class RDLRoute
 
   bool compare(const std::shared_ptr<RDLRoute>& other) const;
 
-  const std::vector<grid_vertex>& getRouteVerticies() const
+  const std::vector<GridGraphVertex>& getRouteVerticies() const
   {
     return route_vertex_;
   }
@@ -86,15 +92,19 @@ class RDLRoute
   int priority_;
 
   bool route_pending_;
+  bool locked_;
+  bool routed_;
 
   std::vector<odb::dbITerm*> terminals_;
   std::vector<odb::dbITerm*>::iterator next_;
 
-  std::vector<grid_vertex> route_vertex_;
+  std::vector<GridGraphVertex> route_vertex_;
   std::vector<odb::Point> route_pts_;
   std::vector<RDLRouter::GridEdge> route_edges_;
   const RouteTarget* route_source_;
   const RouteTarget* route_dest_;
+  std::set<odb::dbITerm*> routed_terminals_;
+  std::set<odb::Rect> stubs_;
 
   RDLRouter::TerminalAccess access_source_;
   RDLRouter::TerminalAccess access_dest_;

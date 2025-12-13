@@ -3,9 +3,9 @@
 
 #pragma once
 
-#include <tcl.h>
-
 #include <string>
+
+#include "tcl.h"
 
 namespace ord {
 
@@ -13,6 +13,5 @@ namespace ord {
 void initOpenRoad(Tcl_Interp* interp,
                   const char* log_filename,
                   const char* metrics_filename,
-                  bool quiet_logs,
-                  bool silent_logs);
+                  bool batch_mode);
 }  // namespace ord

@@ -2,10 +2,13 @@
 // Copyright (c) 2019-2025, The OpenROAD Authors
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
 #include "gseq.h"
+#include "rcx/array1.h"
+#include "rcx/util.h"
 
 namespace rcx {
 
@@ -30,7 +33,7 @@ static constexpr int GS_NONE = 3;
 static constexpr int GS_ROW = 1;
 static constexpr int GS_COLUMN = 0;
 
-gs::gs(odb::AthPool<SEQ>* pool)
+gs::gs(AthPool<SEQ>* pool)
 {
   init_ = INIT;
 
@@ -64,6 +67,9 @@ gs::~gs()
 void gs::freeMem()
 {
   if (init_ & ALLOCATED) {
+    for (auto& pm : pldata_) {
+      free(pm.plane);
+    }
     pldata_.clear();
     init_ = (init_ & ~ALLOCATED);
   }
@@ -144,6 +150,8 @@ void gs::setSize(const int plane,
             plane);
     exit(-1);
   }
+
+  free(plc.plane);
 
   plc.plane = pm;
 }
@@ -284,7 +292,7 @@ uint gs::getSeq(int* ll,
                 int* ur,
                 const uint order,
                 const uint plane,
-                odb::Ath__array1D<SEQ*>* array)
+                Ath__array1D<SEQ*>* array)
 {
   if (!checkPlane(plane)) {
     return 0;

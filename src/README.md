@@ -127,6 +127,45 @@ ibex_sky130hd.tcl
 
 Each of these designs use the common script `flow.tcl`.
 
+## Read database file
+
+To read a database from disk.
+
+``` tcl
+read_db filename
+```
+### Options
+
+| Switch Name | Description |
+| ----- | ----- |
+| `filename` | Path to the file to be read |
+
+### Examples
+```
+read_db reg1.db
+```
+
+## Write database file
+
+To write a database to disk.
+
+``` tcl
+write_db filename
+```
+### Options
+
+| Switch Name | Description |
+| ----- | ----- |
+| `filename` | Path to the file to be written, if the filename ends with `.gz` the file will be compressed using gzip. |
+
+### Examples
+```
+write_db reg1.db
+
+# To write a database file with gzip compression.
+write_db reg1.db.gz
+```
+
 ## Abstract LEF Support
 
 OpenROAD contains an abstract LEF writer that can take your current design
@@ -154,6 +193,32 @@ write_abstract_lef -bloat_factor 3 reg1_abstract.lef
 
 # Produce cover obstructions for each layer with shapes present
 write_abstract_lef -bloat_occupied_layers reg1_abstract.lef
+```
+
+## Write CDL netlist
+
+To export the CDL netlist to disk.
+
+``` tcl
+write_cdl
+  -masters list_of_cdl_files
+  [-include_fillers]
+  filename
+```
+### Options
+
+| Switch Name | Description |
+| ----- | ----- |
+| `-masters` | List of CDL netlist dependencies. |
+| `[-include_fillers]` | Export fillers to the CDL netlist |
+| `filename` | Path to the file to be written, if the filename ends with `.gz` the file will be compressed using gzip. |
+
+### Examples
+```
+write_cdl -masters {netlist1.cdl netlist2.cdl ...} -include_fillers netlist.cdl
+
+# To write a database file with gzip compression.
+write_cdl -masters {netlist1.cdl netlist2.cdl ...} -include_fillers netlist.cdl.gz
 ```
 
 ### Global Connections
@@ -269,6 +334,20 @@ report_logic_depth_histogram [-num_bins num_bins] [-exclude_buffers] [-exclude_i
 | `-num_bins` | Number of histogram bins to display (default is 10). |
 | `-exclude_buffers` | Exclude buffers when counting critical path length. |
 | `-exclude_inverters` | Exclude inverters when counting critical path length. |
+
+#### 3D Blox
+
+The `read_3dblox_bmap` command will read the bump map and place the bumps into the current design.
+
+```tcl
+read_3dblox_bmap filename
+```
+
+##### Options
+
+| Switch Name | Description |
+| ----- | ----- |
+| `filename` | Path to the bump map. |
 
 ## TCL functions
 

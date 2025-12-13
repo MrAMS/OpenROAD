@@ -3,15 +3,36 @@
 
 #include "definReader.h"
 
-#include <boost/algorithm/string/replace.hpp>
+#include <cassert>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
-#include <iostream>
+#include <cstring>
 #include <optional>
 #include <string>
+#include <type_traits>
+#include <variant>
 #include <vector>
 
+#include "boost/algorithm/string/replace.hpp"
+#include "defiBlockage.hpp"
+#include "defiComponent.hpp"
+#include "defiDefs.hpp"
+#include "defiFill.hpp"
+#include "defiGroup.hpp"
+#include "defiMisc.hpp"
+#include "defiNet.hpp"
+#include "defiNonDefault.hpp"
+#include "defiPath.hpp"
+#include "defiPinCap.hpp"
+#include "defiPinProp.hpp"
+#include "defiProp.hpp"
+#include "defiRegion.hpp"
+#include "defiRowTrack.hpp"
+#include "defiScanchain.hpp"
+#include "defiSite.hpp"
+#include "defiVia.hpp"
+#include "definBase.h"
 #include "definBlockage.h"
 #include "definComponent.h"
 #include "definComponentMaskShift.h"
@@ -28,9 +49,14 @@
 #include "definSNet.h"
 #include "definTracks.h"
 #include "definVia.h"
+#include "defrReader.hpp"
 #include "defzlib.hpp"
 #include "odb/db.h"
+#include "odb/dbSet.h"
 #include "odb/dbShape.h"
+#include "odb/dbTypes.h"
+#include "odb/defin.h"
+#include "odb/geom.h"
 #include "utl/Logger.h"
 
 #define UNSUPPORTED(msg)              \
@@ -163,70 +189,14 @@ void populateScanInst(definReader* reader,
 definReader::definReader(dbDatabase* db, utl::Logger* logger, defin::MODE mode)
 {
   _db = db;
-  parent_ = nullptr;
-  _continue_on_errors = false;
-  hier_delimiter_ = 0;
-  left_bus_delimiter_ = 0;
-  right_bus_delimiter_ = 0;
 
   definBase::setLogger(logger);
   definBase::setMode(mode);
 
-  _blockageR = new definBlockage;
-  _componentR = new definComponent;
-  _componentMaskShift = new definComponentMaskShift;
-  _fillR = new definFill;
-  _gcellR = new definGCell;
-  _netR = new definNet;
-  _pinR = new definPin;
-  _rowR = new definRow;
-  _snetR = new definSNet;
-  _tracksR = new definTracks;
-  _viaR = new definVia;
-  _regionR = new definRegion;
-  _groupR = new definGroup;
-  _non_default_ruleR = new definNonDefaultRule;
-  _prop_defsR = new definPropDefs;
-  _pin_propsR = new definPinProps;
-
-  _interfaces.push_back(_blockageR);
-  _interfaces.push_back(_componentR);
-  _interfaces.push_back(_componentMaskShift);
-  _interfaces.push_back(_fillR);
-  _interfaces.push_back(_gcellR);
-  _interfaces.push_back(_netR);
-  _interfaces.push_back(_pinR);
-  _interfaces.push_back(_rowR);
-  _interfaces.push_back(_snetR);
-  _interfaces.push_back(_tracksR);
-  _interfaces.push_back(_viaR);
-  _interfaces.push_back(_regionR);
-  _interfaces.push_back(_groupR);
-  _interfaces.push_back(_non_default_ruleR);
-  _interfaces.push_back(_prop_defsR);
-  _interfaces.push_back(_pin_propsR);
   init();
 }
 
-definReader::~definReader()
-{
-  delete _blockageR;
-  delete _componentR;
-  delete _componentMaskShift;
-  delete _fillR;
-  delete _gcellR;
-  delete _netR;
-  delete _pinR;
-  delete _rowR;
-  delete _snetR;
-  delete _tracksR;
-  delete _viaR;
-  delete _regionR;
-  delete _groupR;
-  delete _non_default_ruleR;
-  delete _prop_defsR;
-  delete _pin_propsR;
-}
+definReader::~definReader() = default;
 
 int definReader::errors()
 {
@@ -273,23 +243,6 @@ void definReader::continueOnErrors()
   _continue_on_errors = true;
 }
 
-void definReader::replaceWires()
-{
-  _netR->replaceWires();
-  _snetR->replaceWires();
-}
-
-void definReader::namesAreDBIDs()
-{
-  _netR->namesAreDBIDs();
-  _snetR->namesAreDBIDs();
-}
-
-void definReader::setAssemblyMode()
-{
-  _netR->setAssemblyMode();
-}
-
 void definReader::useBlockName(const char* name)
 {
   _block_name = name;
@@ -297,13 +250,32 @@ void definReader::useBlockName(const char* name)
 
 void definReader::init()
 {
-  std::vector<definBase*>::iterator itr;
-  for (itr = _interfaces.begin(); itr != _interfaces.end(); ++itr) {
-    (*itr)->init();
-    (*itr)->setLogger(_logger);
-    (*itr)->setMode(_mode);
-  }
-  _update = false;
+  auto make = [this](auto& interface) {
+    using PtrType = std::remove_reference_t<decltype(interface)>;
+    using Type = typename PtrType::element_type;
+    interface = std::make_unique<Type>();
+    interface->setLogger(_logger);
+    interface->setMode(_mode);
+    _interfaces.push_back(interface.get());
+  };
+
+  _interfaces.clear();
+  make(_blockageR);
+  make(_componentR);
+  make(_componentMaskShift);
+  make(_fillR);
+  make(_gcellR);
+  make(_netR);
+  make(_pinR);
+  make(_rowR);
+  make(_snetR);
+  make(_tracksR);
+  make(_viaR);
+  make(_regionR);
+  make(_groupR);
+  make(_non_default_ruleR);
+  make(_prop_defsR);
+  make(_pin_propsR);
 }
 
 void definReader::setTech(dbTech* tech)
@@ -343,22 +315,6 @@ static void handle_props(DEF_TYPE* def_obj, CALLBACK* callback)
       case 'Q':
         callback->property(def_obj->propName(i), def_obj->propValue(i));
         break;
-    }
-  }
-}
-
-static std::string renameBlock(dbBlock* parent, const char* old_name)
-{
-  int cnt = 1;
-
-  for (;; ++cnt) {
-    char n[16];
-    snprintf(n, 15, "_%d", cnt);
-    std::string name(old_name);
-    name += n;
-
-    if (!parent->findChild(name.c_str())) {
-      return name;
     }
   }
 }
@@ -413,37 +369,11 @@ int definReader::designCallback(
   } else {
     block_name = design;
   }
-  if (reader->parent_ != nullptr) {
-    if (reader->parent_->findChild(block_name.c_str())) {
-      if (reader->_mode != defin::DEFAULT) {
-        reader->_block = reader->parent_->findChild(block_name.c_str());
-      } else {
-        std::string new_name = renameBlock(reader->parent_, block_name.c_str());
-        reader->_logger->warn(
-            utl::ODB,
-            261,
-            "Block with name \"{}\" already exists, renaming too \"{}\"",
-            block_name.c_str(),
-            new_name.c_str());
-        reader->_block = dbBlock::create(reader->parent_,
-                                         new_name.c_str(),
-                                         reader->_tech,
-                                         reader->hier_delimiter_);
-      }
-    } else {
-      reader->_block = dbBlock::create(reader->parent_,
-                                       block_name.c_str(),
-                                       reader->_tech,
-                                       reader->hier_delimiter_);
-    }
+  if (reader->_mode != defin::DEFAULT) {
+    reader->_block = reader->chip_->getBlock();
   } else {
-    dbChip* chip = reader->_db->getChip();
-    if (reader->_mode != defin::DEFAULT) {
-      reader->_block = chip->getBlock();
-    } else {
-      reader->_block = dbBlock::create(
-          chip, block_name.c_str(), reader->_tech, reader->hier_delimiter_);
-    }
+    reader->_block = dbBlock::create(
+        reader->chip_, block_name.c_str(), reader->hier_delimiter_);
   }
   if (reader->_mode == defin::DEFAULT) {
     reader->_block->setBusDelimiters(reader->left_bus_delimiter_,
@@ -462,7 +392,7 @@ int definReader::blockageCallback(
 {
   definReader* reader = (definReader*) data;
   CHECKBLOCK
-  definBlockage* blockageR = reader->_blockageR;
+  definBlockage* blockageR = reader->_blockageR.get();
 
   if (blockage->hasMask()) {
     UNSUPPORTED("MASK on blockage is unsupported");
@@ -551,7 +481,7 @@ int definReader::componentsCallback(
 {
   definReader* reader = (definReader*) data;
   CHECKBLOCK
-  definComponent* componentR = reader->_componentR;
+  definComponent* componentR = reader->_componentR.get();
   std::string id = comp->id();
   if (reader->_mode != defin::DEFAULT) {
     if (reader->_block->findInst(id.c_str()) == nullptr) {
@@ -679,7 +609,7 @@ int definReader::fillCallback(DefParser::defrCallbackType_e /* unused: type */,
 {
   definReader* reader = (definReader*) data;
   CHECKBLOCK
-  definFill* fillR = reader->_fillR;
+  definFill* fillR = reader->_fillR.get();
 
   if (fill->hasVia() || fill->hasViaOpc()) {
     UNSUPPORTED("Via fill is unsupported");
@@ -751,7 +681,7 @@ int definReader::groupCallback(DefParser::defrCallbackType_e /* unused: type */,
 {
   definReader* reader = (definReader*) data;
   CHECKBLOCK
-  definGroup* groupR = reader->_groupR;
+  definGroup* groupR = reader->_groupR.get();
   if (group->hasRegionName()) {
     groupR->region(group->regionName());
   }
@@ -777,7 +707,7 @@ int definReader::netCallback(DefParser::defrCallbackType_e /* unused: type */,
 {
   definReader* reader = (definReader*) data;
   CHECKBLOCK
-  definNet* netR = reader->_netR;
+  definNet* netR = reader->_netR.get();
   if (reader->_mode == defin::FLOORPLAN
       && reader->_block->findNet(net->name()) == nullptr) {
     reader->_logger->warn(
@@ -964,7 +894,7 @@ int definReader::nonDefaultRuleCallback(
 {
   definReader* reader = (definReader*) data;
   CHECKBLOCK
-  definNonDefaultRule* ruleR = reader->_non_default_ruleR;
+  definNonDefaultRule* ruleR = reader->_non_default_ruleR.get();
 
   ruleR->beginRule(rule->name());
 
@@ -1015,7 +945,7 @@ int definReader::pinCallback(DefParser::defrCallbackType_e /* unused: type */,
 {
   definReader* reader = (definReader*) data;
   CHECKBLOCK
-  definPin* pinR = reader->_pinR;
+  definPin* pinR = reader->_pinR.get();
   if (reader->_mode != defin::DEFAULT
       && reader->_block->findBTerm(pin->pinName()) == nullptr) {
     std::string modeStr
@@ -1186,7 +1116,8 @@ int definReader::pinPropCallback(
     DefParser::defiUserData data)
 {
   definReader* reader = (definReader*) data;
-  definPinProps* propR = reader->_pin_propsR;
+  CHECKBLOCK
+  definPinProps* propR = reader->_pin_propsR.get();
 
   propR->begin(prop->isPin() ? "PIN" : prop->instName(), prop->pinName());
   handle_props(prop, propR);
@@ -1212,7 +1143,7 @@ int definReader::propCallback(DefParser::defrCallbackType_e /* unused: type */,
 {
   definReader* reader = (definReader*) data;
   CHECKBLOCK
-  definPropDefs* prop_defsR = reader->_prop_defsR;
+  definPropDefs* prop_defsR = reader->_prop_defsR.get();
 
   defPropType data_type;
   switch (prop->dataType()) {
@@ -1302,7 +1233,7 @@ int definReader::regionCallback(
 {
   definReader* reader = (definReader*) data;
   CHECKBLOCK
-  definRegion* regionR = reader->_regionR;
+  definRegion* regionR = reader->_regionR.get();
 
   regionR->begin(region->name());
 
@@ -1334,7 +1265,7 @@ int definReader::rowCallback(DefParser::defrCallbackType_e /* unused: type */,
 {
   definReader* reader = (definReader*) data;
   CHECKBLOCK
-  definRow* rowR = reader->_rowR;
+  definRow* rowR = reader->_rowR.get();
 
   defRow dir = DEF_HORIZONTAL;
   int num_sites = 1;
@@ -1480,6 +1411,12 @@ int definReader::scanchainsCallback(
                        out_pin_name,
                        bits[i]);
     }
+
+    dbSet<dbScanInst> db_scan_insts = db_scan_list->getScanInsts();
+
+    if (db_scan_insts.reversible() && db_scan_insts.orderReversed()) {
+      db_scan_insts.reverse();
+    }
   }
 
   return PARSE_OK;
@@ -1542,6 +1479,7 @@ int definReader::unitsCallback(DefParser::defrCallbackType_e type,
                                DefParser::defiUserData data)
 {
   definReader* reader = (definReader*) data;
+  CHECKBLOCK
 
   // Truncation error
   if (d > reader->_tech->getDbUnitsPerMicron()) {
@@ -1560,9 +1498,7 @@ int definReader::unitsCallback(DefParser::defrCallbackType_e type,
     (*itr)->units(d);
   }
 
-  if (!reader->_update) {
-    reader->_block->setDefUnits(d);
-  }
+  reader->_block->setDefUnits(d);
   return PARSE_OK;
 }
 
@@ -1572,7 +1508,7 @@ int definReader::viaCallback(DefParser::defrCallbackType_e /* unused: type */,
 {
   definReader* reader = (definReader*) data;
   CHECKBLOCK
-  definVia* viaR = reader->_viaR;
+  definVia* viaR = reader->_viaR.get();
 
   if (via->numPolygons() > 0) {
     UNSUPPORTED("POLYGON in via is unsupported");
@@ -1669,7 +1605,7 @@ int definReader::specialNetCallback(
 {
   definReader* reader = (definReader*) data;
   CHECKBLOCK
-  definSNet* snetR = reader->_snetR;
+  definSNet* snetR = reader->_snetR.get();
   if (reader->_mode == defin::FLOORPLAN
       && reader->_block->findNet(net->name()) == nullptr) {
     reader->_logger->warn(
@@ -1888,31 +1824,29 @@ void definReader::setLibs(std::vector<dbLib*>& lib_names)
   _rowR->setLibs(lib_names);
 }
 
-dbChip* definReader::createChip(std::vector<dbLib*>& libs,
-                                const char* file,
-                                odb::dbTech* tech)
+void definReader::readChip(std::vector<dbLib*>& libs,
+                           const char* file,
+                           dbChip* chip,
+                           const bool issue_callback)
 {
   init();
   setLibs(libs);
-  dbChip* chip = _db->getChip();
-  if (_mode != defin::DEFAULT) {
-    if (chip == nullptr) {
-      _logger->error(utl::ODB, 250, "Chip does not exist");
-    }
-  } else if (chip != nullptr) {
-    _logger->error(utl::ODB, 251, "Chip already exists");
-  } else {
-    chip = dbChip::create(_db);
+  chip_ = chip;
+  if (chip_ == nullptr) {
+    _logger->error(utl::ODB, 250, "Chip does not exist");
+  }
+  if (_mode == defin::DEFAULT && chip_->getBlock() != nullptr) {
+    _logger->error(utl::ODB, 251, "Chip already has a block");
   }
 
-  assert(chip);
-  setTech(tech);
+  assert(chip_);
+  setTech(chip_->getTech());
   _logger->info(utl::ODB, 127, "Reading DEF file: {}", file);
 
   if (!createBlock(file)) {
     dbChip::destroy(chip);
     _logger->warn(utl::ODB, 129, "Error: Failed to read DEF file");
-    return nullptr;
+    return;
   }
 
   if (_pinR->_bterm_cnt) {
@@ -1962,88 +1896,9 @@ dbChip* definReader::createChip(std::vector<dbLib*>& libs,
 
   _logger->info(utl::ODB, 134, "Finished DEF file: {}", file);
 
-  _db->triggerPostReadDef(_block);
-
-  return chip;
-}
-
-dbBlock* definReader::createBlock(dbBlock* parent,
-                                  std::vector<dbLib*>& libs,
-                                  const char* def_file,
-                                  odb::dbTech* tech)
-{
-  init();
-  setLibs(libs);
-  parent_ = parent;
-  setTech(tech);
-  _logger->info(utl::ODB, 135, "Reading DEF file: {}", def_file);
-
-  if (!createBlock(def_file)) {
-    dbBlock::destroy(_block);
-    _logger->warn(utl::ODB, 137, "Error: Failed to read DEF file");
-    return nullptr;
+  if (issue_callback) {
+    _db->triggerPostReadDef(_block, _mode == defin::FLOORPLAN);
   }
-
-  if (_pinR->_bterm_cnt) {
-    _logger->info(utl::ODB, 138, "    Created {} pins.", _pinR->_bterm_cnt);
-  }
-
-  if (_componentR->_inst_cnt) {
-    _logger->info(utl::ODB,
-                  139,
-                  "    Created {} components and {} component-terminals.",
-                  _componentR->_inst_cnt,
-                  _componentR->_iterm_cnt);
-  }
-
-  if (_snetR->_snet_cnt) {
-    _logger->info(utl::ODB,
-                  140,
-                  "    Created {} special nets and {} connections.",
-                  _snetR->_snet_cnt,
-                  _snetR->_snet_iterm_cnt);
-  }
-
-  if (_netR->_net_cnt) {
-    _logger->info(utl::ODB,
-                  141,
-                  "    Created {} nets and {} connections.",
-                  _netR->_net_cnt,
-                  _netR->_net_iterm_cnt);
-  }
-
-  _logger->info(utl::ODB, 142, "Finished DEF file: {}", def_file);
-
-  _db->triggerPostReadDef(_block);
-
-  return _block;
-}
-
-bool definReader::replaceWires(dbBlock* block, const char* def_file)
-{
-  init();
-  setBlock(block);
-  setTech(_db->getTech());
-
-  _logger->info(utl::ODB, 143, "Reading DEF file: {}", def_file);
-
-  if (!replaceWires(def_file)) {
-    // dbBlock::destroy(_block);
-    _logger->warn(utl::ODB, 144, "Error: Failed to read DEF file");
-    return false;
-  }
-
-  if (_snetR->_snet_cnt) {
-    _logger->info(
-        utl::ODB, 145, "    Processed {} special nets.", _snetR->_snet_cnt);
-  }
-
-  if (_netR->_net_cnt) {
-    _logger->info(utl::ODB, 146, "    Processed {} nets.", _netR->_net_cnt);
-  }
-
-  _logger->info(utl::ODB, 147, "Finished DEF file: {}", def_file);
-  return errors() == 0;
 }
 
 static inline bool hasSuffix(const std::string& str, const std::string& suffix)
@@ -2148,42 +2003,6 @@ bool definReader::createBlock(const char* file)
 
   return true;
   // 1220 return errors() == 0;
-}
-
-bool definReader::replaceWires(const char* file)
-{
-  FILE* f = fopen(file, "r");
-
-  if (f == nullptr) {
-    _logger->warn(utl::ODB, 150, "error: Cannot open DEF file {}", file);
-    return false;
-  }
-
-  replaceWires();
-
-  DefParser::defrInit();
-  DefParser::defrReset();
-
-  DefParser::defrInitSession();
-
-  defrSetNetCbk(netCallback);
-  defrSetSNetCbk(specialNetCallback);
-
-  DefParser::defrSetAddPathToNet();
-
-  int res = DefParser::defrRead(
-      f, file, (DefParser::defiUserData) this, /* case sensitive */ 1);
-  if (res != 0) {
-    if (!_continue_on_errors) {
-      _logger->error(utl::ODB, 422, "DEF parser returns an error!");
-    } else {
-      _logger->warn(utl::ODB, 151, "DEF parser returns an error!");
-    }
-  }
-
-  DefParser::defrClear();
-
-  return true;
 }
 
 }  // namespace odb

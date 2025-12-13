@@ -3,18 +3,10 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace cts {
-class TritonCTS;
-}
 
-namespace ord {
+void initTritonCts(Tcl_Interp* tcl_interp);
 
-class OpenRoad;
-
-cts::TritonCTS* makeTritonCts();
-
-void initTritonCts(OpenRoad* openroad);
-
-void deleteTritonCts(cts::TritonCTS* tritoncts);
-
-}  // namespace ord
+}  // namespace cts

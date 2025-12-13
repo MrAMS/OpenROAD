@@ -6,16 +6,14 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <iostream>
 #include <limits>
-#include <map>
 #include <stack>
-#include <string>
 #include <utility>
 #include <vector>
 
 #include "Objects.h"
 #include "Padding.h"
+#include "infrastructure/Coordinates.h"
 #include "network.h"
 #include "odb/db.h"
 #include "odb/dbTransform.h"
@@ -360,7 +358,7 @@ void Architecture::flipCellPadding(const Node* ndi)
 {
   GridX left_padding = padding_->padLeft(ndi);
   GridX right_padding = padding_->padLeft(ndi);
-  padding_->setPadding(ndi->getDbInst(), right_padding, left_padding);
+  padding_->setPadding(ndi->getDbInst(), left_padding, right_padding);
 }
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////

@@ -31,16 +31,15 @@
 
 #include <cstring>
 
+#include "lefiKRDefs.hpp"
+
 BEGIN_LEF_PARSER_NAMESPACE
 
 lefrCallbacks* lefCallbacks = nullptr;
 
 void lefrCallbacks::reset()
 {
-  if (lefCallbacks) {
-    delete lefCallbacks;
-  }
-
+  delete lefCallbacks;
   lefCallbacks = new lefrCallbacks();
 }
 

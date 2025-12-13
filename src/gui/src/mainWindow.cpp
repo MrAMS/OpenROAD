@@ -3,8 +3,24 @@
 
 #include "mainWindow.h"
 
+#include <QApplication>
 #include <QDesktopServices>
+#include <QDialog>
+#include <QPushButton>
+#include <QSize>
+#include <QWidget>
+#include <algorithm>
+#include <any>
+#include <exception>
+#include <limits>
+#include <memory>
+#include <optional>
+#include <set>
+#include <variant>
+#include <vector>
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
 #include <QDesktopWidget>
+#endif
 #include <QFileDialog>
 #include <QFontDialog>
 #include <QInputDialog>
@@ -17,11 +33,8 @@
 #include <QUrl>
 #include <QWidgetAction>
 #include <cmath>
-#include <iomanip>
-#include <map>
-#include <sstream>
 #include <string>
-#include <vector>
+#include <utility>
 
 #include "GUIProgress.h"
 #include "browserWidget.h"
@@ -32,15 +45,19 @@
 #include "displayControls.h"
 #include "drcWidget.h"
 #include "globalConnectDialog.h"
+#include "gui/gui.h"
 #include "gui/heatMap.h"
 #include "helpWidget.h"
 #include "highlightGroupDialog.h"
 #include "inspector.h"
 #include "layoutTabs.h"
 #include "layoutViewer.h"
+#include "odb/db.h"
+#include "odb/dbObject.h"
 #include "scriptWidget.h"
 #include "selectHighlightWindow.h"
 #include "sta/Liberty.hh"
+#include "sta/NetworkClass.hh"
 #include "staDescriptors.h"
 #include "staGui.h"
 #include "timingWidget.h"
@@ -69,6 +86,7 @@ MainWindow::MainWindow(bool load_settings, QWidget* parent)
           selected_,
           highlighted_,
           rulers_,
+          labels_,
           Gui::get(),
           [this]() -> bool { return show_dbu_->isChecked(); },
           [this]() -> bool { return show_poly_decomp_view_->isChecked(); },
@@ -86,13 +104,10 @@ MainWindow::MainWindow(bool load_settings, QWidget* parent)
       charts_widget_(new ChartsWidget(this)),
       help_widget_(new HelpWidget(this)),
       find_dialog_(new FindObjectDialog(this)),
-      goto_dialog_(new GotoLocationDialog(this, viewers_))
+      goto_dialog_(new GotoLocationDialog(this, viewers_)),
+      selection_timer_(std::make_unique<QTimer>()),
+      highlight_timer_(std::make_unique<QTimer>())
 {
-  // Size and position the window
-  QSize size = QDesktopWidget().availableGeometry(this).size();
-  resize(size * 0.8);
-  move(size.width() * 0.1, size.height() * 0.1);
-
   QFont font("Monospace");
   font.setStyleHint(QFont::Monospace);
   script_->setWidgetFont(font);
@@ -124,9 +139,9 @@ MainWindow::MainWindow(bool load_settings, QWidget* parent)
 
   // Hook up all the signals/slots
   connect(viewers_,
-          &LayoutTabs::setCurrentBlock,
+          &LayoutTabs::setCurrentChip,
           controls_,
-          &DisplayControls::setCurrentBlock);
+          &DisplayControls::setCurrentChip);
   connect(script_, &ScriptWidget::exiting, this, &MainWindow::exit);
   connect(script_,
           &ScriptWidget::commandExecuted,
@@ -136,7 +151,7 @@ MainWindow::MainWindow(bool load_settings, QWidget* parent)
           &ScriptWidget::commandAboutToExecute,
           viewers_,
           &LayoutTabs::commandAboutToExecute);
-  connect(this, &MainWindow::blockLoaded, viewers_, &LayoutTabs::blockLoaded);
+  connect(this, &MainWindow::chipLoaded, viewers_, &LayoutTabs::chipLoaded);
   connect(this, &MainWindow::redraw, viewers_, &LayoutTabs::fullRepaint);
   connect(
       this, &MainWindow::blockLoaded, controls_, &DisplayControls::blockLoaded);
@@ -175,15 +190,29 @@ MainWindow::MainWindow(bool load_settings, QWidget* parent)
         addRuler(x0, y0, x1, y1, "", "", default_ruler_style_->isChecked());
       });
 
+  connect(viewers_,
+          &LayoutTabs::focusNetsChanged,
+          inspector_,
+          &Inspector::loadActions);
+  connect(viewers_,
+          &LayoutTabs::routeGuidesChanged,
+          inspector_,
+          &Inspector::loadActions);
+  connect(viewers_,
+          &LayoutTabs::netTracksChanged,
+          inspector_,
+          &Inspector::loadActions);
+
   connect(
       this, &MainWindow::selectionChanged, viewers_, &LayoutTabs::fullRepaint);
   connect(
       this, &MainWindow::highlightChanged, viewers_, &LayoutTabs::fullRepaint);
   connect(this, &MainWindow::rulersChanged, viewers_, &LayoutTabs::fullRepaint);
+  connect(this, &MainWindow::labelsChanged, viewers_, &LayoutTabs::fullRepaint);
 
-  connect(controls_, &DisplayControls::selected, [=](const Selected& selected) {
-    setSelected(selected);
-  });
+  connect(controls_,
+          &DisplayControls::selected,
+          [this](const Selected& selected) { setSelected(selected); });
 
   connect(inspector_,
           &Inspector::selected,
@@ -213,22 +242,20 @@ MainWindow::MainWindow(bool load_settings, QWidget* parent)
   connect(inspector_, &Inspector::focus, viewers_, &LayoutTabs::selectionFocus);
   connect(
       drc_viewer_, &DRCWidget::focus, viewers_, &LayoutTabs::selectionFocus);
-  connect(this,
-          &MainWindow::highlightChanged,
-          inspector_,
-          &Inspector::highlightChanged);
+  connect(
+      this, &MainWindow::highlightChanged, inspector_, &Inspector::loadActions);
   connect(viewers_,
           &LayoutTabs::focusNetsChanged,
           inspector_,
-          &Inspector::focusNetsChanged);
+          &Inspector::loadActions);
   connect(inspector_,
           &Inspector::removeHighlight,
-          [=](const QList<const Selected*>& selected) {
+          [this](const QList<const Selected*>& selected) {
             removeFromHighlighted(selected);
           });
   connect(inspector_,
           &Inspector::addHighlight,
-          [=](const SelectionSet& selected) { addHighlighted(selected); });
+          [this](const SelectionSet& selected) { addHighlighted(selected); });
   connect(
       inspector_, &Inspector::setCommand, script_, &ScriptWidget::setCommand);
   connect(script_,
@@ -242,14 +269,14 @@ MainWindow::MainWindow(bool load_settings, QWidget* parent)
 
   connect(hierarchy_widget_,
           &BrowserWidget::select,
-          [=](const SelectionSet& selected) { setSelected(selected); });
+          [this](const SelectionSet& selected) { setSelected(selected); });
   connect(hierarchy_widget_,
           &BrowserWidget::removeSelect,
           this,
           &MainWindow::removeSelected);
   connect(hierarchy_widget_,
           &BrowserWidget::highlight,
-          [=](const SelectionSet& selected) { addHighlighted(selected); });
+          [this](const SelectionSet& selected) { addHighlighted(selected); });
   connect(hierarchy_widget_,
           &BrowserWidget::removeHighlight,
           this,
@@ -310,13 +337,13 @@ MainWindow::MainWindow(bool load_settings, QWidget* parent)
 
   connect(selection_browser_,
           &SelectHighlightWindow::clearHighlightedItems,
-          [=](const QList<const Selected*>& selected) {
+          [this](const QList<const Selected*>& selected) {
             removeFromHighlighted(selected);
           });
 
   connect(selection_browser_,
           &SelectHighlightWindow::highlightSelectedItemsSig,
-          [=](const QList<const Selected*>& items) {
+          [this](const QList<const Selected*>& items) {
             updateHighlightedSet(items);
           });
 
@@ -338,27 +365,31 @@ MainWindow::MainWindow(bool load_settings, QWidget* parent)
   connect(this, &MainWindow::blockLoaded, drc_viewer_, &DRCWidget::setBlock);
   connect(
       this, &MainWindow::blockLoaded, clock_viewer_, &ClockWidget::setBlock);
-  connect(drc_viewer_, &DRCWidget::selectDRC, [this](const Selected& selected) {
-    setSelected(selected, false);
-    odb::Rect bbox;
-    selected.getBBox(bbox);
+  connect(drc_viewer_,
+          &DRCWidget::selectDRC,
+          [this](const Selected& selected, const bool open_inspector) {
+            if (open_inspector) {
+              setSelected(selected, false);
+            }
+            odb::Rect bbox;
+            selected.getBBox(bbox);
 
-    auto* block = getBlock();
-    int zoomout_dist = std::numeric_limits<int>::max();
-    if (block != nullptr) {
-      // 10 microns
-      zoomout_dist = 10 * block->getDbUnitsPerMicron();
-    }
-    // twice the largest dimension of bounding box
-    const int zoomout_box = 2 * std::max(bbox.dx(), bbox.dy());
-    // pick smallest
-    const int zoomout_margin = std::min(zoomout_dist, zoomout_box);
-    bbox.set_xlo(bbox.xMin() - zoomout_margin);
-    bbox.set_ylo(bbox.yMin() - zoomout_margin);
-    bbox.set_xhi(bbox.xMax() + zoomout_margin);
-    bbox.set_yhi(bbox.yMax() + zoomout_margin);
-    zoomTo(bbox);
-  });
+            auto* block = getBlock();
+            int zoomout_dist = std::numeric_limits<int>::max();
+            if (block != nullptr) {
+              // 10 microns
+              zoomout_dist = 10 * block->getDbUnitsPerMicron();
+            }
+            // twice the largest dimension of bounding box
+            const int zoomout_box = 2 * std::max(bbox.dx(), bbox.dy());
+            // pick smallest
+            const int zoomout_margin = std::min(zoomout_dist, zoomout_box);
+            bbox.set_xlo(bbox.xMin() - zoomout_margin);
+            bbox.set_ylo(bbox.yMin() - zoomout_margin);
+            bbox.set_xhi(bbox.xMax() + zoomout_margin);
+            bbox.set_yhi(bbox.yMax() + zoomout_margin);
+            zoomTo(bbox);
+          });
   connect(this, &MainWindow::selectionChanged, [this]() {
     if (!selected_.empty()) {
       drc_viewer_->updateSelection(*selected_.begin());
@@ -368,6 +399,13 @@ MainWindow::MainWindow(bool load_settings, QWidget* parent)
           &MainWindow::displayUnitsChanged,
           goto_dialog_,
           &GotoLocationDialog::updateUnits);
+  connect(selection_timer_.get(), &QTimer::timeout, [this]() {
+    emit selectionChanged();
+  });
+  connect(highlight_timer_.get(),
+          &QTimer::timeout,
+          this,
+          &MainWindow::highlightChanged);
 
   createActions();
   createToolbars();
@@ -378,8 +416,10 @@ MainWindow::MainWindow(bool load_settings, QWidget* parent)
     // Restore the settings (if none this is a no-op)
     QSettings settings("OpenRoad Project", "openroad");
     settings.beginGroup("main");
-    restoreGeometry(settings.value("geometry").toByteArray());
-    restoreState(settings.value("state").toByteArray());
+    // Save these for the showEvent as the window manager may not respect them
+    // if restore here.
+    saved_geometry_ = settings.value("geometry").toByteArray();
+    saved_state_ = settings.value("state").toByteArray();
     QApplication::setFont(
         settings.value("font", QApplication::font()).value<QFont>());
     hide_option_->setChecked(
@@ -415,6 +455,37 @@ MainWindow::MainWindow(bool load_settings, QWidget* parent)
       = [this](const std::string& value, bool* ok) -> int {
     return convertStringToDBU(value, ok);
   };
+
+  selection_timer_->setSingleShot(true);
+  highlight_timer_->setSingleShot(true);
+
+  selection_timer_->setInterval(100 /* ms */);
+  highlight_timer_->setInterval(100 /* ms */);
+}
+
+void MainWindow::showEvent(QShowEvent* event)
+{
+  QWidget::showEvent(event);
+
+  if (!first_show_) {
+    return;
+  }
+
+  if (saved_geometry_.has_value() && saved_state_.has_value()) {
+    restoreGeometry(saved_geometry_.value());
+    restoreState(saved_state_.value());
+  } else {
+    // Default size and position the window
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    QSize size = screen()->availableGeometry().size();
+#else
+    QSize size = QDesktopWidget().availableGeometry(this).size();
+#endif
+
+    resize(size * 0.8);
+    move(size.width() * 0.1, size.height() * 0.1);
+  }
+  first_show_ = false;
 }
 
 MainWindow::~MainWindow()
@@ -422,6 +493,7 @@ MainWindow::~MainWindow()
   auto* gui = Gui::get();
   // unregister descriptors with GUI dependencies
   gui->unregisterDescriptor<Ruler*>();
+  gui->unregisterDescriptor<Label*>();
   gui->unregisterDescriptor<odb::dbNet*>();
   gui->unregisterDescriptor<DbNetDescriptor::NetWithSink>();
   gui->unregisterDescriptor<BufferTree>();
@@ -456,6 +528,11 @@ void MainWindow::updateTitle()
       setWindowTitle(QString::fromStdString(window_title_));
     }
   }
+}
+
+const SelectionSet& MainWindow::selection()
+{
+  return selected_;
 }
 
 void MainWindow::setBlock(odb::dbBlock* block)
@@ -531,6 +608,7 @@ void MainWindow::init(sta::dbSta* sta, const std::string& help_path)
       new DbSiteDescriptor(db_));
   gui->registerDescriptor<odb::dbRow*>(new DbRowDescriptor(db_));
   gui->registerDescriptor<Ruler*>(new RulerDescriptor(rulers_, db_));
+  gui->registerDescriptor<Label*>(new LabelDescriptor(labels_, db_, logger_));
   gui->registerDescriptor<odb::dbBlock*>(new DbBlockDescriptor(db_));
   gui->registerDescriptor<odb::dbTech*>(new DbTechDescriptor(db_));
   gui->registerDescriptor<odb::dbMetalWidthViaMap*>(
@@ -538,14 +616,24 @@ void MainWindow::init(sta::dbSta* sta, const std::string& help_path)
   gui->registerDescriptor<odb::dbMarkerCategory*>(
       new DbMarkerCategoryDescriptor(db_));
   gui->registerDescriptor<odb::dbMarker*>(new DbMarkerDescriptor(db_));
+  gui->registerDescriptor<odb::dbScanInst*>(new DbScanInstDescriptor(db_));
+  gui->registerDescriptor<odb::dbScanList*>(new DbScanListDescriptor(db_));
+  gui->registerDescriptor<odb::dbScanPartition*>(
+      new DbScanPartitionDescriptor(db_));
+  gui->registerDescriptor<odb::dbScanChain*>(new DbScanChainDescriptor(db_));
+  gui->registerDescriptor<odb::dbBox*>(new DbBoxDescriptor(db_));
+  gui->registerDescriptor<DbBoxDescriptor::BoxWithTransform>(
+      new DbBoxDescriptor(db_));
+  gui->registerDescriptor<odb::dbMasterEdgeType*>(
+      new DbMasterEdgeTypeDescriptor(db_));
+  gui->registerDescriptor<odb::dbCellEdgeSpacing*>(
+      new DbCellEdgeSpacingDescriptor(db_));
 
   gui->registerDescriptor<sta::Corner*>(new CornerDescriptor(sta));
   gui->registerDescriptor<sta::LibertyLibrary*>(
       new LibertyLibraryDescriptor(sta));
   gui->registerDescriptor<sta::LibertyCell*>(new LibertyCellDescriptor(sta));
   gui->registerDescriptor<sta::LibertyPort*>(new LibertyPortDescriptor(sta));
-  gui->registerDescriptor<sta::LibertyPgPort*>(
-      new LibertyPgPortDescriptor(sta));
   gui->registerDescriptor<sta::Instance*>(new StaInstanceDescriptor(sta));
   gui->registerDescriptor<sta::Clock*>(new ClockDescriptor(sta));
 
@@ -870,14 +958,19 @@ QMenu* MainWindow::findMenu(QStringList& path, QMenu* parent)
     return parent;
   }
 
-  auto cleanupText = [](const QString& text) -> QString {
+  auto cleanup_text = [](const QString& text) -> QString {
     QString text_cpy = text;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    text_cpy.replace(QRegularExpression("&(?!&)"),
+                     "");  // remove single &, but keep &&
+#else
     text_cpy.replace(QRegExp("&(?!&)"), "");  // remove single &, but keep &&
+#endif
     return text_cpy;
   };
 
   const QString top_name = path[0];
-  const QString compare_name = cleanupText(top_name);
+  const QString compare_name = cleanup_text(top_name);
   path.pop_front();
 
   QList<QAction*> actions;
@@ -889,7 +982,7 @@ QMenu* MainWindow::findMenu(QStringList& path, QMenu* parent)
 
   QMenu* menu = nullptr;
   for (auto* action : actions) {
-    if (cleanupText(action->text()) == compare_name) {
+    if (cleanup_text(action->text()) == compare_name) {
       menu = action->menu();
     }
   }
@@ -1081,7 +1174,7 @@ void MainWindow::addSelected(const SelectionSet& selections, bool find_in_cts)
   }
   status(std::string("Added ")
          + std::to_string(selected_.size() - prev_selected_size));
-  emit selectionChanged();
+  selection_timer_->start();
 
   if (find_in_cts) {
     emit findInCts(selections);
@@ -1125,7 +1218,56 @@ void MainWindow::addHighlighted(const SelectionSet& highlights,
       group.insert(highlight);
     }
   }
-  emit highlightChanged();
+  highlight_timer_->start();
+}
+
+std::string MainWindow::addLabel(int x,
+                                 int y,
+                                 const std::string& text,
+                                 std::optional<Painter::Color> color,
+                                 std::optional<int> size,
+                                 std::optional<Painter::Anchor> anchor,
+                                 std::optional<std::string> name)
+{
+  auto new_label
+      = std::make_unique<Label>(odb::Point(x, y),
+                                text,
+                                anchor.value_or(Painter::Anchor::kCenter),
+                                color.value_or(gui::Painter::kWhite),
+                                size,
+                                std::move(name));
+  std::string new_name = new_label->getName();
+
+  // check if ruler name is unique
+  for (const auto& label : labels_) {
+    if (new_name == label->getName()) {
+      logger_->warn(
+          utl::GUI, 44, "Label with name \"{}\" already exists", new_name);
+      return "";
+    }
+  }
+
+  labels_.push_back(std::move(new_label));
+  emit labelsChanged();
+  return new_name;
+}
+
+void MainWindow::deleteLabel(const std::string& name)
+{
+  auto label_find
+      = std::find_if(labels_.begin(), labels_.end(), [name](const auto& l) {
+          return l->getName() == name;
+        });
+  if (label_find != labels_.end()) {
+    // remove from selected set
+    auto remove_selected = Gui::get()->makeSelected(label_find->get());
+    if (selected_.find(remove_selected) != selected_.end()) {
+      selected_.erase(remove_selected);
+      emit selectionChanged();
+    }
+    labels_.erase(label_find);
+    emit labelsChanged();
+  }
 }
 
 std::string MainWindow::addRuler(int x0,
@@ -1229,6 +1371,16 @@ void MainWindow::clearHighlighted(int highlight_group)
   }
 }
 
+void MainWindow::clearLabels()
+{
+  if (labels_.empty()) {
+    return;
+  }
+  Gui::get()->removeSelected<Label*>();
+  labels_.clear();
+  emit labelsChanged();
+}
+
 void MainWindow::clearRulers()
 {
   if (rulers_.empty()) {
@@ -1312,8 +1464,9 @@ void MainWindow::showFindDialog()
 
 void MainWindow::showGotoDialog()
 {
-  if (getBlock() == nullptr)
+  if (getBlock() == nullptr) {
     return;
+  }
 
   goto_dialog_->show_init();
 }
@@ -1477,7 +1630,13 @@ void MainWindow::postReadLef(odb::dbTech* tech, odb::dbLib* library)
 
 void MainWindow::postReadDef(odb::dbBlock* block)
 {
+  emit chipLoaded(block->getChip());
   emit blockLoaded(block);
+}
+
+void MainWindow::postRead3Dbx(odb::dbChip* chip)
+{
+  emit chipLoaded(chip);
 }
 
 void MainWindow::postReadDb(odb::dbDatabase* db)
@@ -1488,13 +1647,14 @@ void MainWindow::postReadDb(odb::dbDatabase* db)
   }
   auto block = chip->getBlock();
   if (block == nullptr) {
+    // It is a top chip
+    emit chipLoaded(chip);
     return;
   }
 
+  // Only create a tab for the top block
+  emit chipLoaded(block->getChip());
   emit blockLoaded(block);
-  for (auto child : block->getChildren()) {
-    emit blockLoaded(child);
-  }
 }
 
 void MainWindow::setLogger(utl::Logger* logger)
@@ -1510,6 +1670,7 @@ void MainWindow::setLogger(utl::Logger* logger)
   drc_viewer_->setLogger(logger);
   clock_viewer_->setLogger(logger);
   charts_widget_->setLogger(logger);
+  timing_widget_->setLogger(logger);
 }
 
 void MainWindow::fit()
@@ -1559,6 +1720,12 @@ void MainWindow::closeEvent(QCloseEvent* event)
   exit_check.exec();
 
   if (exit_check.clickedButton() == exit_button) {
+    // close all dialogs
+    for (QWidget* w : QApplication::topLevelWidgets()) {
+      if (w != this) {
+        w->close();
+      }
+    }
     // exit selected so go ahead and close
     event->accept();
   } else if (exit_check.clickedButton() == hide_button) {
@@ -1647,7 +1814,7 @@ int MainWindow::convertStringToDBU(const std::string& value, bool* ok) const
   return new_value.toDouble(ok) * dbu_per_micron;
 }
 
-void MainWindow::timingCone(Gui::odbTerm term, bool fanin, bool fanout)
+void MainWindow::timingCone(Gui::Term term, bool fanin, bool fanout)
 {
   auto* renderer = timing_widget_->getConeRenderer();
 
@@ -1658,7 +1825,7 @@ void MainWindow::timingCone(Gui::odbTerm term, bool fanin, bool fanout)
   }
 }
 
-void MainWindow::timingPathsThrough(const std::set<Gui::odbTerm>& terms)
+void MainWindow::timingPathsThrough(const std::set<Gui::Term>& terms)
 {
   auto* settings = timing_widget_->getSettings();
   settings->setFromPin({});
@@ -1703,7 +1870,17 @@ void MainWindow::showGlobalConnect()
 
 void MainWindow::openDesign()
 {
-  const QString filefilter = "OpenDB (*.odb *.ODB)";
+  const std::vector<QString> exts{".odb", ".odb.gz", ".db", ".db.gz"};
+
+  QString filefilter = "OpenDB (";
+  for (const auto& ext : exts) {
+    if (filefilter.length() != 8) {
+      filefilter += " ";
+    }
+    filefilter += "*" + ext;
+    filefilter += " *" + ext.toUpper();
+  }
+  filefilter += ")";
   const QString file = QFileDialog::getOpenFileName(
       this, "Open Design", QString(), filefilter);
 
@@ -1712,16 +1889,22 @@ void MainWindow::openDesign()
   }
 
   try {
-    if (file.endsWith(".odb", Qt::CaseInsensitive)) {
-      open_->setEnabled(false);
-      ord::OpenRoad::openRoad()->readDb(file.toStdString().c_str());
-      logger_->warn(utl::GUI,
-                    77,
-                    "Timing data is not stored in {} and must be loaded "
-                    "separately, if needed.",
-                    file.toStdString());
-    } else {
-      logger_->error(utl::GUI, 76, "Unknown filetype: {}", file.toStdString());
+    bool found = false;
+    for (const auto& ext : exts) {
+      if (file.endsWith(ext, Qt::CaseInsensitive)) {
+        open_->setEnabled(false);
+        ord::OpenRoad::openRoad()->readDb(file.toStdString().c_str());
+        logger_->warn(utl::GUI,
+                      109,
+                      "Timing data is not stored in {} and must be loaded "
+                      "separately, if needed.",
+                      file.toStdString());
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      logger_->error(utl::GUI, 108, "Unknown filetype: {}", file.toStdString());
     }
   } catch (const std::exception&) {
     // restore option
@@ -1731,7 +1914,17 @@ void MainWindow::openDesign()
 
 void MainWindow::saveDesign()
 {
-  const QString filefilter = "OpenDB (*.odb *.ODB)";
+  const std::vector<QString> exts{".odb", ".odb.gz"};
+
+  QString filefilter = "OpenDB (";
+  for (const auto& ext : exts) {
+    if (filefilter.length() != 8) {
+      filefilter += " ";
+    }
+    filefilter += "*" + ext;
+    filefilter += " *" + ext.toUpper();
+  }
+  filefilter += ")";
   const QString file = QFileDialog::getSaveFileName(
       this, "Save Design", QString(), filefilter);
 

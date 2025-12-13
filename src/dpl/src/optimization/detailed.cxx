@@ -1,14 +1,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2021-2025, The OpenROAD Authors
 
-#include <algorithm>
-#include <boost/format.hpp>
-#include <boost/tokenizer.hpp>
 #include <cmath>
-#include <iostream>
-#include <stack>
+#include <cstring>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "util/utility.h"
@@ -18,6 +13,8 @@
 #include "infrastructure/detailed_segment.h"
 #include "optimization/detailed_manager.h"
 // Detailed placement algorithms.
+#include "boost/token_functions.hpp"
+#include "boost/tokenizer.hpp"
 #include "detailed.h"
 #include "optimization/detailed_global.h"
 #include "optimization/detailed_mis.h"
@@ -25,7 +22,6 @@
 #include "optimization/detailed_random.h"
 #include "optimization/detailed_reorder.h"
 #include "optimization/detailed_vertical.h"
-
 using utl::DPL;
 
 namespace dpl {
@@ -46,7 +42,7 @@ bool Detailed::improve(DetailedMgr& mgr)
 
   // Parse the script string and run each command.
   boost::char_separator<char> separators(" \r\t\n", ";");
-  boost::tokenizer<boost::char_separator<char>> tokens(params_.script_,
+  boost::tokenizer<boost::char_separator<char>> tokens(params_.script,
                                                        separators);
   std::vector<std::string> args;
   for (auto temp : tokens) {

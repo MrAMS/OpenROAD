@@ -3,6 +3,8 @@ or_integration_tests(
   TESTS
     bus_route
     clock_route
+    clock_route_cugr
+    clock_route_cugr2
     clock_route_alpha
     clock_route_error1
     clock_route_error2
@@ -14,12 +16,17 @@ or_integration_tests(
     congestion6
     congestion7
     critical_nets_percentage
+    cugr_adjustment1
+    cugr_adjustment2
+    cugr_adjustment3
     est_rc1
     est_rc2
     est_rc3
     est_rc4
     gcd
+    gcd_cugr
     gcd_flute
+    increase_capacity1
     inst_pin_out_of_die
     invalid_pin_placement
     invalid_routing_layer
@@ -48,6 +55,8 @@ or_integration_tests(
     read_segments_error1
     read_segments_error2
     read_segments_error3
+    read_segments_error4
+    read_segments_error5
     region_adjustment
     remove_buffers1
     remove_buffers2
@@ -63,9 +72,13 @@ or_integration_tests(
     report_wire_length4
     report_wire_length5
     report_wire_length6
+    report_wire_length7
+    report_wire_length8
     set_nets_to_route1
     silence
     single_row
+    skip_large_fanout1
+    soft_ndr_4w_6s
     top_level_term1
     top_level_term2
     top_level_term3

@@ -3,14 +3,20 @@
 
 #pragma once
 
+#include <cassert>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 #include <vector>
 
+#include "dbCommon.h"
+#include "dbCore.h"
 #include "dbDatabase.h"
 #include "dbTable.h"
-#include "odb/ZException.h"
+#include "odb/dbId.h"
+#include "odb/dbObject.h"
 #include "odb/dbStream.h"
+#include "utl/Logger.h"
 
 namespace odb {
 
@@ -19,46 +25,46 @@ namespace odb {
 // This method is the same as getPtr() but is is
 // use to get objects on the free-list.
 //
-template <class T>
-inline _dbFreeObject* dbTable<T>::getFreeObj(dbId<T> id)
+template <class T, uint page_size>
+inline _dbFreeObject* dbTable<T, page_size>::getFreeObj(dbId<T> id)
 {
-  const uint page = (uint) id >> _page_shift;
-  const uint offset = (uint) id & _page_mask;
+  const uint page = (uint) id >> page_shift;
+  const uint offset = (uint) id & page_mask;
 
-  assert(((uint) id != 0) && (page < _page_cnt));
-  T* p = (T*) &(_pages[page]->_objects[offset * sizeof(T)]);
-  assert((p->_oid & DB_ALLOC_BIT) == 0);
+  assert(((uint) id != 0) && (page < page_cnt_));
+  T* p = (T*) &(pages_[page]->objects_[offset * sizeof(T)]);
+  assert((p->oid_ & DB_ALLOC_BIT) == 0);
   return (_dbFreeObject*) p;
 }
 
-template <class T>
-inline T* dbTable<T>::getPtr(dbId<T> id) const
+template <class T, uint page_size>
+inline T* dbTable<T, page_size>::getPtr(dbId<T> id) const
 {
-  const uint page = (uint) id >> _page_shift;
-  const uint offset = (uint) id & _page_mask;
+  const uint page = (uint) id >> page_shift;
+  const uint offset = (uint) id & page_mask;
 
-  assert(((uint) id != 0) && (page < _page_cnt));
-  T* p = (T*) &(_pages[page]->_objects[offset * sizeof(T)]);
-  assert(p->_oid & DB_ALLOC_BIT);
+  assert(((uint) id != 0) && (page < page_cnt_));
+  T* p = (T*) &(pages_[page]->objects_[offset * sizeof(T)]);
+  assert(p->oid_ & DB_ALLOC_BIT);
   return p;
 }
 
-template <class T>
-inline bool dbTable<T>::validId(dbId<T> id) const
+template <class T, uint page_size>
+inline bool dbTable<T, page_size>::validId(dbId<T> id) const
 {
-  const uint page = (uint) id >> _page_shift;
-  const uint offset = (uint) id & _page_mask;
+  const uint page = (uint) id >> page_shift;
+  const uint offset = (uint) id & page_mask;
 
-  if (((uint) id != 0) && (page < _page_cnt)) {
-    T* p = (T*) &(_pages[page]->_objects[offset * sizeof(T)]);
-    return (p->_oid & DB_ALLOC_BIT) == DB_ALLOC_BIT;
+  if (((uint) id != 0) && (page < page_cnt_)) {
+    T* p = (T*) &(pages_[page]->objects_[offset * sizeof(T)]);
+    return (p->oid_ & DB_ALLOC_BIT) == DB_ALLOC_BIT;
   }
 
   return false;
 }
 
-template <class T>
-inline void dbTable<T>::pushQ(uint& Q, _dbFreeObject* e)
+template <class T, uint page_size>
+inline void dbTable<T, page_size>::pushQ(uint& Q, _dbFreeObject* e)
 {
   e->_prev = 0;
   e->_next = Q;
@@ -69,8 +75,8 @@ inline void dbTable<T>::pushQ(uint& Q, _dbFreeObject* e)
   Q = head_id;
 }
 
-template <class T>
-inline _dbFreeObject* dbTable<T>::popQ(uint& Q)
+template <class T, uint page_size>
+inline _dbFreeObject* dbTable<T, page_size>::popQ(uint& Q)
 {
   _dbFreeObject* e = getFreeObj(Q);
   Q = e->_next;
@@ -83,16 +89,16 @@ inline _dbFreeObject* dbTable<T>::popQ(uint& Q)
   return e;
 }
 
-template <class T>
-void dbTable<T>::clear()
+template <class T, uint page_size>
+void dbTable<T, page_size>::clear()
 {
-  for (uint i = 0; i < _page_cnt; ++i) {
-    dbTablePage* page = _pages[i];
-    const T* t = (T*) page->_objects;
+  for (uint i = 0; i < page_cnt_; ++i) {
+    dbTablePage* page = pages_[i];
+    const T* t = (T*) page->objects_;
     const T* e = &t[pageSize()];
 
     for (; t < e; t++) {
-      if (t->_oid & DB_ALLOC_BIT) {
+      if (t->oid_ & DB_ALLOC_BIT) {
         t->~T();
       }
     }
@@ -100,139 +106,134 @@ void dbTable<T>::clear()
     free(page);
   }
 
-  delete[] _pages;
+  delete[] pages_;
 
-  _bottom_idx = 0;
-  _top_idx = 0;
-  _page_cnt = 0;
-  _page_tbl_size = 0;
-  _alloc_cnt = 0;
-  _free_list = 0;
-  _pages = nullptr;
+  bottom_idx_ = 0;
+  top_idx_ = 0;
+  page_cnt_ = 0;
+  page_tbl_size_ = 0;
+  alloc_cnt_ = 0;
+  free_list_ = 0;
+  pages_ = nullptr;
 }
 
-template <class T>
-dbTable<T>::dbTable(_dbDatabase* db,
-                    dbObject* owner,
-                    dbObjectTable* (dbObject::*m)(dbObjectType),
-                    const dbObjectType type,
-                    const uint page_size,
-                    const uint page_shift)
+template <class T, uint page_size>
+dbTable<T, page_size>::dbTable(_dbDatabase* db,
+                               dbObject* owner,
+                               dbObjectTable* (dbObject::*m)(dbObjectType),
+                               const dbObjectType type)
     : dbObjectTable(db, owner, m, type, sizeof(T))
 {
-  _page_mask = page_size - 1;
-  _page_shift = page_shift;
-  _bottom_idx = 0;
-  _top_idx = 0;
-  _page_cnt = 0;
-  _page_tbl_size = 0;
-  _alloc_cnt = 0;
-  _free_list = 0;
-  _pages = nullptr;
+  bottom_idx_ = 0;
+  top_idx_ = 0;
+  page_cnt_ = 0;
+  page_tbl_size_ = 0;
+  alloc_cnt_ = 0;
+  free_list_ = 0;
+  pages_ = nullptr;
 }
 
-template <class T>
-dbTable<T>::~dbTable()
+template <class T, uint page_size>
+dbTable<T, page_size>::~dbTable()
 {
   clear();
 }
 
-template <class T>
-void dbTable<T>::resizePageTbl()
+template <class T, uint page_size>
+void dbTable<T, page_size>::resizePageTbl()
 {
-  dbTablePage** old_tbl = _pages;
-  const uint old_tbl_size = _page_tbl_size;
-  _page_tbl_size *= 2;
+  dbTablePage** old_tbl = pages_;
+  const uint old_tbl_size = page_tbl_size_;
+  page_tbl_size_ *= 2;
 
-  _pages = new dbTablePage*[_page_tbl_size];
+  pages_ = new dbTablePage*[page_tbl_size_];
 
   uint i;
   for (i = 0; i < old_tbl_size; ++i) {
-    _pages[i] = old_tbl[i];
+    pages_[i] = old_tbl[i];
   }
 
-  for (; i < _page_tbl_size; ++i) {
-    _pages[i] = nullptr;
+  for (; i < page_tbl_size_; ++i) {
+    pages_[i] = nullptr;
   }
 
   delete[] old_tbl;
 }
 
-template <class T>
-void dbTable<T>::newPage()
+template <class T, uint page_size>
+void dbTable<T, page_size>::newPage()
 {
   const uint size = pageSize() * sizeof(T) + sizeof(dbObjectPage);
-  dbTablePage* page = (dbTablePage*) malloc(size);
-  ZALLOCATED(page);
+  dbTablePage* page = (dbTablePage*) safe_malloc(size);
   memset(page, 0, size);
 
-  const uint page_id = _page_cnt;
+  const uint page_id = page_cnt_;
 
-  if (_page_tbl_size == 0) {
-    _pages = new dbTablePage*[1];
-    _page_tbl_size = 1;
-  } else if (_page_tbl_size == _page_cnt) {
+  if (page_tbl_size_ == 0) {
+    pages_ = new dbTablePage*[1];
+    page_tbl_size_ = 1;
+  } else if (page_tbl_size_ == page_cnt_) {
     resizePageTbl();
   }
 
-  ++_page_cnt;
+  ++page_cnt_;
   page->_table = this;
-  page->_page_addr = page_id << _page_shift;
+  page->_page_addr = page_id << page_shift;
   page->_alloccnt = 0;
-  _pages[page_id] = page;
+  pages_[page_id] = page;
 
   // The objects are put on the list in reverse order, so they can be removed
   // in low-to-high order.
   if (page_id == 0) {
-    T* b = (T*) page->_objects;
-    T* t = &b[_page_mask];
+    T* b = (T*) page->objects_;
+    T* t = &b[page_mask];
 
     for (; t >= b; --t) {
       _dbFreeObject* o = (_dbFreeObject*) t;
-      o->_oid = (uint) ((char*) t - (char*) b);
+      o->oid_ = (uint) ((char*) t - (char*) b);
 
       if (t != b) {  // don't link zero-object
-        pushQ(_free_list, o);
+        pushQ(free_list_, o);
       }
     }
   } else {
-    T* b = (T*) page->_objects;
-    T* t = &b[_page_mask];
+    T* b = (T*) page->objects_;
+    T* t = &b[page_mask];
 
     for (; t >= b; --t) {
       _dbFreeObject* o = (_dbFreeObject*) t;
-      o->_oid = (uint) ((char*) t - (char*) b);
-      pushQ(_free_list, o);
+      o->oid_ = (uint) ((char*) t - (char*) b);
+      pushQ(free_list_, o);
     }
   }
 }
 
-template <class T>
-T* dbTable<T>::create()
+template <class T, uint page_size>
+T* dbTable<T, page_size>::create()
 {
-  ++_alloc_cnt;
+  ++alloc_cnt_;
 
-  if (_free_list == 0) {
+  if (free_list_ == 0) {
     newPage();
   }
 
-  _dbFreeObject* o = popQ(_free_list);
-  const uint oid = o->_oid;
-  new (o) T(_db);
+  _dbFreeObject* o = popQ(free_list_);
+  const uint oid = o->oid_;
+  new (o) T(db_);
   T* t = (T*) o;
-  t->_oid = oid | DB_ALLOC_BIT;
+  t->oid_ = oid | DB_ALLOC_BIT;
 
   dbTablePage* page = (dbTablePage*) t->getObjectPage();
   page->_alloccnt++;
 
   const uint id = t->getOID();
 
-  if (id > _top_idx) {
-    _top_idx = id;
+  if (id > top_idx_) {
+    top_idx_ = id;
   }
 
-  if ((_bottom_idx == 0) || (id < _bottom_idx)) {
-    _bottom_idx = id;
+  if ((bottom_idx_ == 0) || (id < bottom_idx_)) {
+    bottom_idx_ = id;
   }
 
   return t;
@@ -242,217 +243,217 @@ T* dbTable<T>::create()
 #define ADS_DB_TABLE_TOP_SEARCH_FAILED 0
 
 // find the new bottom_idx...
-template <class T>
-inline void dbTable<T>::findBottom()
+template <class T, uint page_size>
+inline void dbTable<T, page_size>::findBottom()
 {
-  if (_alloc_cnt == 0) {
-    _bottom_idx = 0;
+  if (alloc_cnt_ == 0) {
+    bottom_idx_ = 0;
     return;
   }
 
-  uint page_id = _bottom_idx >> _page_shift;
-  dbTablePage* page = _pages[page_id];
+  uint page_id = bottom_idx_ >> page_shift;
+  dbTablePage* page = pages_[page_id];
 
   // if page is still valid, find the next allocated object
   if (page->valid_page()) {
-    uint offset = _bottom_idx & _page_mask;
-    T* b = (T*) page->_objects;
+    uint offset = bottom_idx_ & page_mask;
+    T* b = (T*) page->objects_;
     T* s = &b[offset + 1];
     T* e = &b[pageSize()];
     for (; s < e; s++) {
-      if (s->_oid & DB_ALLOC_BIT) {
+      if (s->oid_ & DB_ALLOC_BIT) {
         offset = s - b;
-        _bottom_idx = (page_id << _page_shift) + offset;
+        bottom_idx_ = (page_id << page_shift) + offset;
         return;
       }
     }
 
     // if s == e, then something is corrupted...
-    ZASSERT(ADS_DB_TABLE_BOTTOM_SEARCH_FAILED);
+    assert(ADS_DB_TABLE_BOTTOM_SEARCH_FAILED);
   }
 
   for (++page_id;; ++page_id) {
-    assert(page_id < _page_cnt);
-    page = _pages[page_id];
+    assert(page_id < page_cnt_);
+    page = pages_[page_id];
 
     if (page->valid_page()) {
       break;
     }
   }
 
-  T* b = (T*) page->_objects;
+  T* b = (T*) page->objects_;
   T* s = b;
   T* e = &s[pageSize()];
 
   for (; s < e; s++) {
-    if (s->_oid & DB_ALLOC_BIT) {
+    if (s->oid_ & DB_ALLOC_BIT) {
       const uint offset = s - b;
-      _bottom_idx = (page_id << _page_shift) + offset;
+      bottom_idx_ = (page_id << page_shift) + offset;
       return;
     }
   }
 
   // if s == e, then something is corrupted...
-  ZASSERT(ADS_DB_TABLE_BOTTOM_SEARCH_FAILED);
+  assert(ADS_DB_TABLE_BOTTOM_SEARCH_FAILED);
 }
 
 // find the new top_idx...
-template <class T>
-inline void dbTable<T>::findTop()
+template <class T, uint page_size>
+inline void dbTable<T, page_size>::findTop()
 {
-  if (_alloc_cnt == 0) {
-    _top_idx = 0;
+  if (alloc_cnt_ == 0) {
+    top_idx_ = 0;
     return;
   }
 
-  uint page_id = _top_idx >> _page_shift;
-  dbTablePage* page = _pages[page_id];
+  uint page_id = top_idx_ >> page_shift;
+  dbTablePage* page = pages_[page_id];
 
   // if page is still valid, find the next allocated object
   if (page->valid_page()) {
-    uint offset = _top_idx & _page_mask;
-    T* b = (T*) page->_objects;
+    uint offset = top_idx_ & page_mask;
+    T* b = (T*) page->objects_;
     T* s = &b[offset - 1];
 
     for (; s >= b; s--) {
-      if (s->_oid & DB_ALLOC_BIT) {
+      if (s->oid_ & DB_ALLOC_BIT) {
         offset = s - b;
-        _top_idx = (page_id << _page_shift) + offset;
+        top_idx_ = (page_id << page_shift) + offset;
         return;
       }
     }
 
     // if s < e, then something is corrupted...
-    ZASSERT(ADS_DB_TABLE_TOP_SEARCH_FAILED);
+    assert(ADS_DB_TABLE_TOP_SEARCH_FAILED);
   }
 
   for (--page_id;; --page_id) {
     assert(page_id >= 0);
-    page = _pages[page_id];
+    page = pages_[page_id];
 
     if (page->valid_page()) {
       break;
     }
   }
 
-  T* b = (T*) page->_objects;
-  T* s = &b[_page_mask];
+  T* b = (T*) page->objects_;
+  T* s = &b[page_mask];
 
   for (; s >= b; s--) {
-    if (s->_oid & DB_ALLOC_BIT) {
+    if (s->oid_ & DB_ALLOC_BIT) {
       const uint offset = s - b;
-      _top_idx = (page_id << _page_shift) + offset;
+      top_idx_ = (page_id << page_shift) + offset;
       return;
     }
   }
 
   // if s < e, then something is corrupted...
-  ZASSERT(ADS_DB_TABLE_TOP_SEARCH_FAILED);
+  assert(ADS_DB_TABLE_TOP_SEARCH_FAILED);
 }
 
-template <class T>
-void dbTable<T>::destroy(T* t)
+template <class T, uint page_size>
+void dbTable<T, page_size>::destroy(T* t)
 {
-  --_alloc_cnt;
+  --alloc_cnt_;
 
-  ZASSERT(t->getOID() != 0);
-  ZASSERT(t->getTable() == this);
-  ZASSERT(t->_oid & DB_ALLOC_BIT);
+  assert(t->getOID() != 0);
+  assert(t->getTable() == this);
+  assert(t->oid_ & DB_ALLOC_BIT);
 
   dbTablePage* page = (dbTablePage*) t->getObjectPage();
   _dbFreeObject* o = (_dbFreeObject*) t;
 
   page->_alloccnt--;
-  const uint oid = t->_oid;
+  const uint oid = t->oid_;
   t->~T();  // call destructor
-  o->_oid = oid & ~DB_ALLOC_BIT;
+  o->oid_ = oid & ~DB_ALLOC_BIT;
 
-  const uint offset = t - (T*) page->_objects;
+  const uint offset = t - (T*) page->objects_;
   const uint id = page->_page_addr + offset;
 
   // Add to freelist
-  pushQ(_free_list, o);
+  pushQ(free_list_, o);
 
-  if (id == _bottom_idx) {
+  if (id == bottom_idx_) {
     findBottom();
   }
 
-  if (id == _top_idx) {
+  if (id == top_idx_) {
     findTop();
   }
 }
 
-template <class T>
-bool dbTable<T>::reversible()
+template <class T, uint page_size>
+bool dbTable<T, page_size>::reversible() const
 {
   return false;
 }
 
-template <class T>
-bool dbTable<T>::orderReversed()
+template <class T, uint page_size>
+bool dbTable<T, page_size>::orderReversed() const
 {
   return false;
 }
 
-template <class T>
-void dbTable<T>::reverse(dbObject* /* unused: parent */)
+template <class T, uint page_size>
+void dbTable<T, page_size>::reverse(dbObject* /* unused: parent */)
 {
 }
 
-template <class T>
-uint dbTable<T>::sequential()
+template <class T, uint page_size>
+uint dbTable<T, page_size>::sequential() const
 {
-  return _top_idx;
+  return top_idx_;
 }
 
-template <class T>
-uint dbTable<T>::size(dbObject* /* unused: parent */)
+template <class T, uint page_size>
+uint dbTable<T, page_size>::size(dbObject* /* unused: parent */) const
 {
   return size();
 }
 
-template <class T>
-uint dbTable<T>::begin(dbObject* /* unused: parent */)
+template <class T, uint page_size>
+uint dbTable<T, page_size>::begin(dbObject* /* unused: parent */) const
 {
-  return _bottom_idx;
+  return bottom_idx_;
 }
 
-template <class T>
-uint dbTable<T>::end(dbObject* /* unused: parent */)
+template <class T, uint page_size>
+uint dbTable<T, page_size>::end(dbObject* /* unused: parent */) const
 {
   return 0;
 }
 
-template <class T>
-uint dbTable<T>::next(uint id, ...)
+template <class T, uint page_size>
+uint dbTable<T, page_size>::next(uint id, ...) const
 {
-  ZASSERT(id != 0);
+  assert(id != 0);
   ++id;
 
-  if (id > _top_idx) {
+  if (id > top_idx_) {
     return 0;
   }
 
-  uint page_id = id >> _page_shift;
-  dbTablePage* page = _pages[page_id];
-  uint offset = id & _page_mask;
+  uint page_id = id >> page_shift;
+  dbTablePage* page = pages_[page_id];
+  uint offset = id & page_mask;
 
 next_obj:
-  T* p = (T*) &(page->_objects[offset * sizeof(T)]);
-  T* e = (T*) &(page->_objects[pageSize() * sizeof(T)]);
+  T* p = (T*) &(page->objects_[offset * sizeof(T)]);
+  T* e = (T*) &(page->objects_[pageSize() * sizeof(T)]);
 
   for (; p < e; ++p) {
-    if (p->_oid & DB_ALLOC_BIT) {
-      offset = p - (T*) page->_objects;
-      const uint n = (page_id << _page_shift) + offset;
-      ZASSERT(n <= _top_idx);
+    if (p->oid_ & DB_ALLOC_BIT) {
+      offset = p - (T*) page->objects_;
+      const uint n = (page_id << page_shift) + offset;
+      assert(n <= top_idx_);
       return n;
     }
   }
 
   // search for next non empty page
-  for (++page_id; page_id < _page_cnt; ++page_id) {
-    page = _pages[page_id];
+  for (++page_id; page_id < page_cnt_; ++page_id) {
+    page = pages_[page_id];
 
     if (page->valid_page()) {
       offset = 0;
@@ -463,20 +464,21 @@ next_obj:
   return 0;
 }
 
-template <class T>
-dbObject* dbTable<T>::getObject(uint id, ...)
+template <class T, uint page_size>
+dbObject* dbTable<T, page_size>::getObject(uint id, ...)
 {
   return getPtr(id);
 }
 
-template <class T>
-void dbTable<T>::writePage(dbOStream& stream, const dbTablePage* page) const
+template <class T, uint page_size>
+void dbTable<T, page_size>::writePage(dbOStream& stream,
+                                      const dbTablePage* page) const
 {
-  const T* t = (T*) page->_objects;
+  const T* t = (T*) page->objects_;
   const T* e = &t[pageSize()];
 
   for (; t < e; t++) {
-    if (t->_oid & DB_ALLOC_BIT) {
+    if (t->oid_ & DB_ALLOC_BIT) {
       const char allocated = 1;
       stream << allocated;
       stream << *t;
@@ -490,10 +492,10 @@ void dbTable<T>::writePage(dbOStream& stream, const dbTablePage* page) const
   }
 }
 
-template <class T>
-void dbTable<T>::readPage(dbIStream& stream, dbTablePage* page)
+template <class T, uint page_size>
+void dbTable<T, page_size>::readPage(dbIStream& stream, dbTablePage* page)
 {
-  T* t = (T*) page->_objects;
+  T* t = (T*) page->objects_;
   T* e = &t[pageSize()];
   page->_alloccnt = 0;
 
@@ -502,26 +504,26 @@ void dbTable<T>::readPage(dbIStream& stream, dbTablePage* page)
     stream >> allocated;
 
     if (!allocated) {
-      t->_oid = (uint) ((char*) t - page->_objects);
+      t->oid_ = (uint) ((char*) t - page->objects_);
       _dbFreeObject* o = (_dbFreeObject*) t;
       stream >> o->_next;
       stream >> o->_prev;
     } else {
-      new (t) T(_db);
-      uint oid = uint((char*) t - page->_objects) | DB_ALLOC_BIT;
-      t->_oid = oid;  // Set the oid so the stream code can call the dbObject
+      new (t) T(db_);
+      uint oid = uint((char*) t - page->objects_) | DB_ALLOC_BIT;
+      t->oid_ = oid;  // Set the oid so the stream code can call the dbObject
                       // methods.
       page->_alloccnt++;
       stream >> *t;
-      assert(
-          t->_oid
-          == oid);  // Check that the streaming code did not overwrite the oid
+      // Check that the streaming code did not overwrite the oid
+      assert(t->oid_ == oid);
     }
   }
 }
 
-template <class T>
-dbOStream& operator<<(dbOStream& stream, const NamedTable<T>& named_table)
+template <class T, uint page_size>
+dbOStream& operator<<(dbOStream& stream,
+                      const NamedTable<T, page_size>& named_table)
 {
   dbOStreamScope scope(
       stream,
@@ -530,109 +532,122 @@ dbOStream& operator<<(dbOStream& stream, const NamedTable<T>& named_table)
   return stream;
 }
 
-template <class T>
-dbOStream& operator<<(dbOStream& stream, const dbTable<T>& table)
+template <class T, uint page_size>
+dbOStream& operator<<(dbOStream& stream, const dbTable<T, page_size>& table)
 {
-  stream << table._page_mask;
-  stream << table._page_shift;
-  stream << table._top_idx;
-  stream << table._bottom_idx;
-  stream << table._page_cnt;
-  stream << table._page_tbl_size;
-  stream << table._alloc_cnt;
-  stream << table._free_list;
+  stream << table.top_idx_;
+  stream << table.bottom_idx_;
+  stream << table.page_cnt_;
+  stream << table.page_tbl_size_;
+  stream << table.alloc_cnt_;
+  stream << table.free_list_;
 
-  for (uint i = 0; i < table._page_cnt; ++i) {
-    const dbTablePage* page = table._pages[i];
+  for (uint i = 0; i < table.page_cnt_; ++i) {
+    const dbTablePage* page = table.pages_[i];
     table.writePage(stream, page);
   }
 
-  stream << table._prop_list;
+  stream << table.prop_list_;
 
   return stream;
 }
 
-template <class T>
-dbIStream& operator>>(dbIStream& stream, dbTable<T>& table)
+template <class T, uint page_size>
+dbIStream& operator>>(dbIStream& stream, dbTable<T, page_size>& table)
 {
   table.clear();
-  stream >> table._page_mask;
-  stream >> table._page_shift;
-  stream >> table._top_idx;
-  stream >> table._bottom_idx;
-  stream >> table._page_cnt;
-  stream >> table._page_tbl_size;
-  stream >> table._alloc_cnt;
-  stream >> table._free_list;
+  _dbDatabase* db = stream.getDatabase();
+  if (!db->isSchema(db_schema_table_mask_shift)) {
+    uint page_mask;
+    uint page_shift;
+    stream >> page_mask;
+    stream >> page_shift;
+    if (page_mask != table.page_mask || page_shift != table.page_shift) {
+      utl::Logger* logger = db->getLogger();
+      logger->error(utl::ODB,
+                    477,
+                    "dbTable mask/shift mismatch {}/{} vs {}/{}",
+                    page_mask,
+                    page_shift,
+                    table.page_mask,
+                    table.page_shift);
+    }
+  }
+  stream >> table.top_idx_;
+  stream >> table.bottom_idx_;
+  stream >> table.page_cnt_;
+  stream >> table.page_tbl_size_;
+  stream >> table.alloc_cnt_;
+  stream >> table.free_list_;
 
-  if (table._page_tbl_size == 0) {
-    table._pages = nullptr;
+  if (table.page_tbl_size_ == 0) {
+    table.pages_ = nullptr;
+    assert(table.page_cnt_ == 0);
   } else {
-    table._pages = new dbTablePage*[table._page_tbl_size];
+    table.pages_ = new dbTablePage*[table.page_tbl_size_];
   }
 
   uint i;
-  for (i = 0; i < table._page_cnt; ++i) {
+  for (i = 0; i < table.page_cnt_; ++i) {
     uint size = table.pageSize() * sizeof(T) + sizeof(dbObjectPage);
-    dbTablePage* page = (dbTablePage*) malloc(size);
-    ZALLOCATED(page);
+    dbTablePage* page = (dbTablePage*) safe_malloc(size);
     memset(page, 0, size);
-    page->_page_addr = i << table._page_shift;
+    page->_page_addr = i << table.page_shift;
     page->_table = &table;
-    table._pages[i] = page;
+    table.pages_[i] = page;
     table.readPage(stream, page);
   }
 
-  for (; i < table._page_tbl_size; ++i) {
-    table._pages[i] = nullptr;
+  for (; i < table.page_tbl_size_; ++i) {
+    table.pages_[i] = nullptr;
   }
 
-  stream >> table._prop_list;
+  stream >> table.prop_list_;
 
   return stream;
 }
 
-template <class T>
-bool dbTable<T>::operator!=(const dbTable<T>& table) const
+template <class T, uint page_size>
+bool dbTable<T, page_size>::operator!=(const dbTable<T, page_size>& table) const
 {
   return !operator==(table);
 }
 
-template <class T>
-bool dbTable<T>::operator==(const dbTable<T>& rhs) const
+template <class T, uint page_size>
+bool dbTable<T, page_size>::operator==(const dbTable<T, page_size>& rhs) const
 {
-  const dbTable<T>& lhs = *this;
+  const dbTable<T, page_size>& lhs = *this;
 
   // These basic parameters should be the same...
-  assert(lhs._page_mask == rhs._page_mask);
-  assert(lhs._page_shift == rhs._page_shift);
+  assert(lhs.page_mask == rhs.page_mask);
+  assert(lhs.page_shift == rhs.page_shift);
 
   // empty tables
-  if ((lhs._page_cnt == 0) && (rhs._page_cnt == 0)) {
+  if ((lhs.page_cnt_ == 0) && (rhs.page_cnt_ == 0)) {
     return true;
   }
 
   // Simple rejection test
-  if (lhs._page_cnt != rhs._page_cnt) {
+  if (lhs.page_cnt_ != rhs.page_cnt_) {
     return false;
   }
 
   // Simple rejection test
-  if (lhs._bottom_idx != rhs._bottom_idx) {
+  if (lhs.bottom_idx_ != rhs.bottom_idx_) {
     return false;
   }
 
   // Simple rejection test
-  if (lhs._top_idx != rhs._top_idx) {
+  if (lhs.top_idx_ != rhs.top_idx_) {
     return false;
   }
 
   // Simple rejection test
-  if (lhs._alloc_cnt != rhs._alloc_cnt) {
+  if (lhs.alloc_cnt_ != rhs.alloc_cnt_) {
     return false;
   }
 
-  for (uint i = _bottom_idx; i <= _top_idx; ++i) {
+  for (uint i = bottom_idx_; i <= top_idx_; ++i) {
     bool lhs_valid_o = lhs.validId(i);
     bool rhs_valid_o = rhs.validId(i);
 
@@ -653,10 +668,10 @@ bool dbTable<T>::operator==(const dbTable<T>& rhs) const
   return true;
 }
 
-template <class T>
-void dbTable<T>::collectMemInfo(MemInfo& info)
+template <class T, uint page_size>
+void dbTable<T, page_size>::collectMemInfo(MemInfo& info)
 {
-  for (int i = _bottom_idx; i <= _top_idx; ++i) {
+  for (int i = bottom_idx_; i <= top_idx_; ++i) {
     if (validId(i)) {
       getPtr(i)->collectMemInfo(info);
     }

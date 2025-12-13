@@ -12,6 +12,12 @@ or_integration_tests(
     buffer_ports6
     buffer_ports7
     buffer_ports8
+    buffer_ports9
+    buffer_ports10
+    buffer_ports11
+    buffer_ports11_hier
+    buffer_ports12
+    buffer_ports12_hier
     buffer_varying_lengths
     clone_flat
     clone_hier
@@ -23,20 +29,21 @@ or_integration_tests(
     gain_buffering1
     gcd_resize
     liberty_dont_use
-    make_parasitics1
-    make_parasitics2
-    make_parasitics3
-    make_parasitics4
-    make_parasitics5
-    make_parasitics6
-    make_parasitics7
     pin_swap1
     pinswap_flat
     pinswap_hier
+    rebuffer1
+    rebuffer1_hier
     recover_power_verbose
+    remove_buffers_hier1
     remove_buffers1
     remove_buffers2
     remove_buffers3
+    remove_buffers4
+    remove_buffers4_hier
+    remove_buffers5
+    remove_buffers5_hier
+    remove_buffers6
     repair_cap1
     repair_cap2
     repair_cap3
@@ -73,12 +80,15 @@ or_integration_tests(
     repair_hold13
     repair_hold14
     repair_hold15
+    repair_setup_sizedown
+    repair_setup_sizeup_match
     repair_setup1
     repair_setup2
     repair_setup3
     repair_setup4
     repair_setup4_flat
     repair_setup4_hier
+    repair_setup4_sequence
     repair_setup4_verbose
     repair_setup5
     repair_setup6
@@ -86,7 +96,9 @@ or_integration_tests(
     repair_setup7_limit
     repair_setup8
     repair_setup9
-    repair_setup_undo
+    repair_setup9_hier
+    repair_setup_undo1
+    repair_setup_undo2
     repair_slew1
     repair_slew2
     repair_slew3
@@ -113,6 +125,9 @@ or_integration_tests(
     repair_tie7
     repair_tie8
     repair_tie9
+    repair_tie10_hier
+    repair_tie11_hier
+    repair_tie12_hier
     repair_wire1
     repair_wire2
     repair_wire3
@@ -124,6 +139,7 @@ or_integration_tests(
     repair_wire9
     repair_wire10
     repair_wire11
+    report_design_area
     report_dont_touch
     report_dont_use
     report_dont_use_corners
@@ -157,6 +173,17 @@ or_integration_tests(
     repair_setup6_multi
     repair_setup7_multi
     report_equiv_cells
+    replace_arith_modules1
+    replace_arith_modules2
+    report_buffers_asap7
+    report_buffers_nangate45
+    report_buffers_ihp
+    report_buffers_sky130hs
+    report_buffers_sky130hd
+    report_buffers_gf180
+    repair_setup_vt_swap
+    repair_setup_vt_swap2
+    repair_fanout7_skip_pin_swap
   PASSFAIL_TESTS
     cpp_tests
 )

@@ -1,5 +1,5 @@
 [INFO ODB-0227] LEF file: Nangate45/Nangate45.lef, created 22 layers, 27 vias, 135 library cells
-[INFO ODB-0227] LEF file: Nangate45_io/dummy_pads.lef, created 28 library cells
+[INFO ODB-0227] LEF file: Nangate45_io/dummy_pads.lef, created 29 library cells
 [INFO ODB-0227] LEF file: testcases/macro_only.lef, created 9 library cells
 [INFO ODB-0128] Design: io_pads1
 [INFO ODB-0130]     Created 1 pins.
@@ -19,4 +19,5 @@ Die Area: (0.00, 0.00) (290.00, 125.00),  Floorplan Area: (0.00, 0.00) (149.91, 
 	Floorplan Utilization: 0.21
 	Manufacturing Grid: 10
 
+[WARNING MPL-0014] No Liberty data found for std cells. Continuing without dataflow.
 No differences found.

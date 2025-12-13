@@ -5,9 +5,12 @@
 
 #include "odb/dbTransform.h"
 
+#include <stdexcept>
 #include <vector>
 
 #include "odb/dbStream.h"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
 
 namespace odb {
 
@@ -78,8 +81,8 @@ static const dbOrientType::Value orientMul[8][8] = {{dbOrientType::R0,
 
 dbOStream& operator<<(dbOStream& stream, const dbTransform& t)
 {
-  stream << (int) t._orient;
-  stream << t._offset;
+  stream << (int) t.orient_;
+  stream << t.offset_;
   return stream;
 }
 
@@ -87,8 +90,8 @@ dbIStream& operator>>(dbIStream& stream, dbTransform& t)
 {
   int orient;
   stream >> orient;
-  t._orient = (dbOrientType::Value) orient;
-  stream >> t._offset;
+  t.orient_ = (dbOrientType::Value) orient;
+  stream >> t.offset_;
   return stream;
 }
 
@@ -109,10 +112,10 @@ dbIStream& operator>>(dbIStream& stream, dbTransform& t)
 //
 void dbTransform::invert(dbTransform& result) const
 {
-  Point offset(-_offset.x(), -_offset.y());
+  Point offset(-offset_.x(), -offset_.y());
   dbOrientType::Value orient;
 
-  switch (_orient) {
+  switch (orient_) {
     case dbOrientType::R0:
       orient = dbOrientType::R0;
       break;
@@ -154,16 +157,16 @@ void dbTransform::invert(dbTransform& result) const
       orient = dbOrientType::MXR90;
       break;
     default:
-      throw ZException("Unknown orientation");
+      throw std::runtime_error("Unknown orientation");
   }
 
-  result._offset = offset;
-  result._orient = orient;
+  result.offset_ = offset;
+  result.orient_ = orient;
 }
 
 void dbTransform::apply(Point& p) const
 {
-  switch (_orient) {
+  switch (orient_) {
     case dbOrientType::R0:
       break;
 
@@ -198,8 +201,8 @@ void dbTransform::apply(Point& p) const
       break;
   }
 
-  p.addX(_offset.x());
-  p.addY(_offset.y());
+  p.addX(offset_.x());
+  p.addY(offset_.y());
 }
 
 void dbTransform::apply(Rect& r) const
@@ -222,9 +225,9 @@ void dbTransform::apply(Polygon& p) const
 
 void dbTransform::concat(const dbTransform& t, dbTransform& result)
 {
-  result._offset = _offset;
-  t.apply(result._offset);
-  result._orient = orientMul[_orient][t._orient];
+  result.offset_ = offset_;
+  t.apply(result.offset_);
+  result.orient_ = orientMul[orient_][t.orient_];
 }
 
 }  // namespace odb

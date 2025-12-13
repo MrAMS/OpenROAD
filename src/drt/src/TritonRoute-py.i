@@ -5,11 +5,13 @@
 
 %{
 
+#include "drt/TritonRoute.h"
 #include "ord/OpenRoad.hh"
-#include "triton_route/TritonRoute.h"
 #include "utl/Logger.h"
 %}
 
+%ignore drt::TritonRoute::initGraphics;
+
 %include <std_string.i>
 %include "../../Exception-py.i"
-%include "triton_route/TritonRoute.h"
+%include "drt/TritonRoute.h"

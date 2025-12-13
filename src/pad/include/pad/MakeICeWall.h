@@ -4,15 +4,10 @@
 #pragma once
 
 #include "pad/ICeWall.h"
+#include "tcl.h"
 
-namespace ord {
+namespace pad {
 
-class OpenRoad;
+void initICeWall(Tcl_Interp* tcl_interp);
 
-void initICeWall(OpenRoad* openroad);
-
-pad::ICeWall* makeICeWall();
-
-void deleteICeWall(pad::ICeWall* icewall);
-
-}  // namespace ord
+}  // namespace pad

@@ -12,30 +12,27 @@
 #include <vector>
 
 #include "odb/db.h"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
 #include "stt/flute.h"
 #include "stt/pd.h"
+#include "utl/Logger.h"
 
 namespace stt {
 
 static void reportSteinerBranches(const stt::Tree& tree, Logger* logger);
 
-SteinerTreeBuilder::SteinerTreeBuilder()
+SteinerTreeBuilder::SteinerTreeBuilder(odb::dbDatabase* db, Logger* logger)
     : alpha_(0.3),
       min_fanout_alpha_({0, -1}),
       min_hpwl_alpha_({0, -1}),
-      logger_(nullptr),
-      db_(nullptr),
+      logger_(logger),
+      db_(db),
       flute_(new flt::Flute())
 {
 }
 
 SteinerTreeBuilder::~SteinerTreeBuilder() = default;
-
-void SteinerTreeBuilder::init(odb::dbDatabase* db, Logger* logger)
-{
-  db_ = db;
-  logger_ = logger;
-}
 
 Tree SteinerTreeBuilder::makeSteinerTree(const std::vector<int>& x,
                                          const std::vector<int>& y,
@@ -384,7 +381,7 @@ void Tree::printTree(utl::Logger* logger) const
                      (float) branch[i].y,
                      branch[i].n);
     }
-    for (int i = deg; i < 2 * deg - 2; i++) {
+    for (int i = deg; i < branch.size(); i++) {
       logger->report("s{:2d}:  x={:4g}  y={:4g}  e={}",
                      i,
                      (float) branch[i].x,

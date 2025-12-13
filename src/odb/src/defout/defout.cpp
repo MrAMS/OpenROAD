@@ -3,52 +3,40 @@
 
 #include "odb/defout.h"
 
+#include <cassert>
 #include <cstdio>
+#include <memory>
 
 #include "defout_impl.h"
 #include "odb/db.h"
 
 namespace odb {
 
-defout::defout(utl::Logger* logger)
+DefOut::DefOut(utl::Logger* logger)
 {
-  _writer = new defout_impl(logger);
-  assert(_writer);
+  writer_ = std::make_unique<Impl>(logger);
 }
 
-defout::~defout()
+DefOut::~DefOut() = default;
+
+void DefOut::selectNet(dbNet* net)
 {
-  delete _writer;
+  writer_->selectNet(net);
 }
 
-void defout::setUseLayerAlias(bool value)
+void DefOut::selectInst(dbInst* inst)
 {
-  _writer->setUseLayerAlias(value);
+  writer_->selectInst(inst);
 }
 
-void defout::setUseNetInstIds(bool value)
+void DefOut::setVersion(Version v)
 {
-  _writer->setUseNetInstIds(value);
+  writer_->setVersion(v);
 }
 
-void defout::setUseMasterIds(bool value)
+bool DefOut::writeBlock(dbBlock* block, const char* def_file)
 {
-  _writer->setUseMasterIds(value);
-}
-
-void defout::selectNet(dbNet* net)
-{
-  _writer->selectNet(net);
-}
-
-void defout::setVersion(Version v)
-{
-  _writer->setVersion(v);
-}
-
-bool defout::writeBlock(dbBlock* block, const char* def_file)
-{
-  return _writer->writeBlock(block, def_file);
+  return writer_->writeBlock(block, def_file);
 }
 
 }  // namespace odb

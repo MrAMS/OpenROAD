@@ -3,18 +3,23 @@
 
 #include "pdn/PdnGen.hh"
 
+#include <algorithm>
+#include <array>
+#include <cstring>
 #include <map>
 #include <memory>
 #include <set>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
+#include "boost/geometry/geometry.hpp"
 #include "connect.h"
 #include "domain.h"
 #include "grid.h"
 #include "odb/db.h"
+#include "odb/dbObject.h"
 #include "odb/dbTransform.h"
-#include "ord/OpenRoad.hh"
 #include "power_cells.h"
 #include "renderer.h"
 #include "rings.h"
@@ -28,18 +33,12 @@ namespace pdn {
 
 using utl::Logger;
 
-PdnGen::PdnGen() : db_(nullptr), logger_(nullptr)
+PdnGen::PdnGen(dbDatabase* db, Logger* logger) : db_(db), logger_(logger)
 {
+  sroute_ = std::make_unique<SRoute>(this, db, logger_);
 }
 
 PdnGen::~PdnGen() = default;
-
-void PdnGen::init(dbDatabase* db, Logger* logger)
-{
-  db_ = db;
-  logger_ = logger;
-  sroute_ = std::make_unique<SRoute>(this, db, logger_);
-}
 
 void PdnGen::reset()
 {
@@ -72,8 +71,15 @@ void PdnGen::buildGrids(bool trim)
     insts_in_grids.insert(insts_in_grid.begin(), insts_in_grid.end());
   }
 
+  std::set<odb::dbNet*> grid_nets;
+  for (auto* grid : grids) {
+    const auto nets = grid->getNets();
+    grid_nets.insert(nets.begin(), nets.end());
+  }
+
   ShapeVectorMap block_obs_vec;
-  Grid::makeInitialObstructions(block, block_obs_vec, insts_in_grids, logger_);
+  Grid::makeInitialObstructions(
+      block, block_obs_vec, insts_in_grids, grid_nets, logger_);
   for (auto* grid : grids) {
     grid->getGridLevelObstructions(block_obs_vec);
   }
@@ -130,15 +136,18 @@ void PdnGen::buildGrids(bool trim)
     }
     logger_->warn(utl::PDN,
                   232,
-                  "{} does not contain any shapes or vias.",
-                  grid->getLongName());
+                  "The grid \"{}\" ({}) does not contain any shapes or vias.",
+                  grid->getLongName(),
+                  Grid::typeToString(grid->type()));
     failed = true;
   }
+
+  updateRenderer();
+
   if (failed) {
     logger_->error(utl::PDN, 233, "Failed to generate full power grid.");
   }
 
-  updateRenderer();
   debugPrint(logger_, utl::PDN, "Make", 1, "Build - end");
 }
 
@@ -154,6 +163,8 @@ void PdnGen::cleanupVias()
 
 void PdnGen::updateVias()
 {
+  debugPrint(logger_, utl::PDN, "Make", 2, "Update vias - start");
+
   const auto grids = getGrids();
 
   for (auto* grid : grids) {
@@ -171,6 +182,8 @@ void PdnGen::updateVias()
       via->getUpperShape()->addVia(via);
     }
   }
+
+  debugPrint(logger_, utl::PDN, "Make", 2, "Update vias - end");
 }
 
 void PdnGen::trimShapes()
@@ -195,7 +208,7 @@ void PdnGen::trimShapes()
         const bool is_pin_layer
             = pin_layers.find(shape->getLayer()) != pin_layers.end();
 
-        Shape* new_shape = nullptr;
+        std::unique_ptr<Shape> new_shape = nullptr;
         const odb::Rect new_rect = shape->getMinimumRect();
         if (new_rect == shape->getRect()) {  // no change to shape
           continue;
@@ -221,7 +234,7 @@ void PdnGen::trimShapes()
           }
         } else {
           if (!is_pin_layer) {
-            component->replaceShape(shape.get(), {new_shape});
+            component->replaceShape(shape.get(), std::move(new_shape));
           }
         }
       }
@@ -408,7 +421,8 @@ void PdnGen::makeCoreGrid(
     const std::vector<odb::dbTechLayer*>& generate_obstructions,
     PowerCell* powercell,
     odb::dbNet* powercontrol,
-    const char* powercontrolnetwork)
+    const char* powercontrolnetwork,
+    const std::vector<odb::dbTechLayer*>& pad_pin_layers)
 {
   auto grid = std::make_unique<CoreGrid>(
       domain, name, starts_with == POWER, generate_obstructions);
@@ -436,6 +450,9 @@ void PdnGen::makeCoreGrid(
           powercontrol,
           GridSwitchedPower::fromString(powercontrolnetwork, logger_)));
     }
+  }
+  if (!pad_pin_layers.empty()) {
+    grid->setupDirectConnect(pad_pin_layers);
   }
   domain->addGrid(std::move(grid));
 }
@@ -561,6 +578,13 @@ void PdnGen::makeRing(Grid* grid,
   if (!pad_pin_layers.empty() && grid->type() == Grid::Core) {
     auto* core_grid = static_cast<CoreGrid*>(grid);
     core_grid->setupDirectConnect(pad_pin_layers);
+    for (const auto& comp : core_grid->getStraps()) {
+      PadDirectConnectionStraps* straps
+          = dynamic_cast<PadDirectConnectionStraps*>(comp.get());
+      if (straps) {
+        straps->setTargetType(odb::dbWireShapeType::RING);
+      }
+    }
   }
 }
 
@@ -585,7 +609,8 @@ void PdnGen::makeStrap(Grid* grid,
                        bool snap,
                        StartsWith starts_with,
                        ExtensionMode extend,
-                       const std::vector<odb::dbNet*>& nets)
+                       const std::vector<odb::dbNet*>& nets,
+                       bool allow_out_of_core)
 {
   auto strap = std::make_unique<Straps>(
       grid, layer, width, pitch, spacing, number_of_straps);
@@ -596,21 +621,23 @@ void PdnGen::makeStrap(Grid* grid,
     strap->setStartWithPower(starts_with == POWER);
   }
   strap->setNets(nets);
+  strap->setAllowOutsideCoreArea(allow_out_of_core);
   grid->addStrap(std::move(strap));
 }
 
-void PdnGen::makeConnect(Grid* grid,
-                         odb::dbTechLayer* layer0,
-                         odb::dbTechLayer* layer1,
-                         int cut_pitch_x,
-                         int cut_pitch_y,
-                         const std::vector<odb::dbTechViaGenerateRule*>& vias,
-                         const std::vector<odb::dbTechVia*>& techvias,
-                         int max_rows,
-                         int max_columns,
-                         const std::vector<odb::dbTechLayer*>& ongrid,
-                         const std::map<odb::dbTechLayer*, int>& split_cuts,
-                         const std::string& dont_use_vias)
+void PdnGen::makeConnect(
+    Grid* grid,
+    odb::dbTechLayer* layer0,
+    odb::dbTechLayer* layer1,
+    int cut_pitch_x,
+    int cut_pitch_y,
+    const std::vector<odb::dbTechViaGenerateRule*>& vias,
+    const std::vector<odb::dbTechVia*>& techvias,
+    int max_rows,
+    int max_columns,
+    const std::vector<odb::dbTechLayer*>& ongrid,
+    const std::map<odb::dbTechLayer*, std::pair<int, bool>>& split_cuts,
+    const std::string& dont_use_vias)
 {
   auto con = std::make_unique<Connect>(grid, layer0, layer1);
   con->setCutPitch(cut_pitch_x, cut_pitch_y);
@@ -626,7 +653,13 @@ void PdnGen::makeConnect(Grid* grid,
   con->setMaxRows(max_rows);
   con->setMaxColumns(max_columns);
   con->setOnGrid(ongrid);
-  con->setSplitCuts(split_cuts);
+
+  std::map<odb::dbTechLayer*, Connect::SplitCut> split_cuts_map;
+  for (const auto& [layer, cut_def] : split_cuts) {
+    split_cuts_map[layer]
+        = Connect::SplitCut{std::get<0>(cut_def), std::get<1>(cut_def)};
+  }
+  con->setSplitCuts(split_cuts_map);
 
   if (!dont_use_vias.empty()) {
     con->filterVias(dont_use_vias);
@@ -754,10 +787,38 @@ void PdnGen::writeToDb(bool add_pins, const std::string& report_file) const
     }
   }
 
+  std::map<Shape*, std::vector<odb::dbBox*>> shape_map;
   for (auto* domain : domains) {
     for (const auto& grid : domain->getGrids()) {
-      grid->writeToDb(net_map, add_pins, obstructions);
+      const auto db_shapes = grid->writeToDb(net_map, add_pins, obstructions);
+      shape_map.insert(db_shapes.begin(), db_shapes.end());
+
       grid->makeRoutingObstructions(db_->getChip()->getBlock());
+    }
+  }
+
+  // Cleanup floating shapes due to failed vias
+  for (const auto& [shape, db_shapes] : shape_map) {
+    if (!shape->isLocked() && !shape->hasInternalConnections()) {
+      for (odb::dbBox* db_box : db_shapes) {
+        if (db_box == nullptr) {
+          continue;
+        }
+        if (db_box->getObjectType() == odb::dbObjectType::dbSBoxObj) {
+          odb::dbSBox::destroy((odb::dbSBox*) db_box);
+        } else {
+          odb::dbBox::destroy(db_box);
+        }
+      }
+    }
+  }
+
+  // Remove empty swires
+  for (auto& [net, swire] : net_map) {
+    if (swire->getWires().empty()) {
+      odb::dbSWire::destroy(swire);
+      logger_->warn(
+          utl::PDN, 213, "No shapes were created for net {}.", net->getName());
     }
   }
 

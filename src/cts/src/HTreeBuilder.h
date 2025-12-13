@@ -14,6 +14,8 @@
 #include "CtsObserver.h"
 #include "CtsOptions.h"
 #include "TreeBuilder.h"
+#include "odb/db.h"
+#include "odb/isotropy.h"
 
 namespace cts {
 class Graphics;
@@ -372,6 +374,7 @@ class HTreeBuilder : public TreeBuilder
   unsigned minLengthSinkRegion_ = 0;
   unsigned clockTreeMaxDepth_ = 0;
   static constexpr int min_clustering_sinks_ = 200;
+  static constexpr int min_clustering_macro_sinks_ = 10;
   std::vector<unsigned> clusterDiameters_ = {50, 100, 200};
   std::vector<unsigned> clusterSizes_ = {10, 20, 30};
 };

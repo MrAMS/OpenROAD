@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  j1:
+  Repo-Stats:
     name: repostats-for-nice-project
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.USE_SELF_HOSTED == 'true' && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - name: run-ghrs
         uses: jgehrcke/github-repo-stats@v1.4.2

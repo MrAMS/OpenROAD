@@ -1,26 +1,23 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2019-2025, The OpenROAD Authors
 
-#include "FlexPA.h"
+#include "pa/FlexPA.h"
 
-#include <omp.h>
-
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
-#include <boost/io/ios_state.hpp>
-#include <boost/serialization/export.hpp>
-#include <chrono>
+#include <cstdint>
 #include <fstream>
-#include <iostream>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include "AbstractPAGraphics.h"
+#include "boost/archive/text_iarchive.hpp"
+#include "boost/archive/text_oarchive.hpp"
+#include "boost/io/ios_state.hpp"
+#include "boost/serialization/export.hpp"
 #include "db/infra/frTime.h"
+#include "db/obj/frAccess.h"
+#include "db/obj/frBlockObject.h"
 #include "distributed/PinAccessJobDescription.h"
 #include "distributed/frArchive.h"
 #include "distributed/paUpdate.h"
@@ -28,7 +25,12 @@
 #include "dst/JobMessage.h"
 #include "frProfileTask.h"
 #include "gc/FlexGC.h"
+#include "global.h"
+#include "odb/db.h"
+#include "omp.h"
+#include "pa/AbstractPAGraphics.h"
 #include "serialization.h"
+#include "utl/Logger.h"
 #include "utl/exception.h"
 
 BOOST_CLASS_EXPORT(drt::PinAccessJobDescription)
@@ -39,19 +41,25 @@ using utl::ThreadException;
 
 static inline void serializePatterns(
     const std::unordered_map<
-        frInst*,
+        UniqueClass*,
         std::vector<std::unique_ptr<FlexPinAccessPattern>>>& patterns,
     const std::string& file_name)
 {
   std::ofstream file(file_name.c_str());
   frOArchive ar(file);
   registerTypes(ar);
-  ar << patterns;
+  int sz = patterns.size();
+  ar << sz;
+  for (auto& [unique_class, pattern] : patterns) {
+    frBlockObject* obj = (frBlockObject*) unique_class->getFirstInst();
+    serializeBlockObject(ar, obj);
+    ar << pattern;
+  }
   file.close();
 }
 
 FlexPA::FlexPA(frDesign* in,
-               Logger* logger,
+               utl::Logger* logger,
                dst::Distributed* dist,
                RouterConfiguration* router_cfg)
     : design_(in),
@@ -93,24 +101,105 @@ void FlexPA::init()
   initAllSkipInstTerm();
 }
 
-void FlexPA::deleteInst(frInst* inst)
+void FlexPA::addDirtyInst(frInst* inst)
 {
-  const bool is_class_head = (inst == unique_insts_.getUnique(inst));
-  // if inst is the class head the new head will be returned by deleteInst()
-  frInst* class_head = unique_insts_.deleteInst(inst);
-  UniqueInsts::InstSet* unique_class = unique_insts_.getClass(inst);
-  // whole class has to be deleted
-  if (!class_head) {
-    unique_inst_patterns_.erase(inst);
-    for (auto& inst_term : inst->getInstTerms()) {
-      skip_unique_inst_term_.erase({unique_class, inst_term->getTerm()});
+  dirty_insts_.insert(inst);
+}
+
+void FlexPA::removeDirtyInst(frInst* inst)
+{
+  dirty_insts_.erase(inst);
+}
+
+void FlexPA::updateDirtyInsts()
+{
+  std::set<UniqueClass*> dirty_unique_classes;
+  frOrderedIdSet<frInst*>
+      pattern_insts;  // list of insts that need row pattern generation
+  for (const auto& inst : dirty_insts_) {
+    removeFromInstsSet(inst);
+    const auto& old_unique_class = unique_insts_.getUniqueClass(inst);
+    const auto& new_unique_class = unique_insts_.computeUniqueClass(inst);
+    if (old_unique_class == new_unique_class) {  // same unique class
+      if (updateSkipInstTerm(inst)) {            // a new connection added
+        dirty_unique_classes.insert(old_unique_class);
+      } else if (inst->getLatestPATransform()
+                 != inst->getTransform()) {  // cell has been moved
+        pattern_insts.insert(inst);
+      }
+    } else {  // cell changed unique class
+      if (old_unique_class != nullptr) {
+        unique_insts_.deleteInst(inst);
+      }
+      const bool is_new_unique = unique_insts_.addInst(inst);
+      if (is_new_unique || updateSkipInstTerm(inst)) {
+        dirty_unique_classes.insert(new_unique_class);
+      } else {
+        pattern_insts.insert(inst);
+      }
     }
   }
-  // new class representative has to be chosen
-  else if (is_class_head) {
-    unique_inst_patterns_[class_head] = std::move(unique_inst_patterns_[inst]);
-    unique_inst_patterns_.erase(inst);
+  for (auto& unique_class : dirty_unique_classes) {
+    if (!unique_class->isInitialized()) {
+      unique_insts_.initUniqueInstPinAccess(unique_class);
+    }
+    unique_class->getMaster()->setHasPinAccessUpdate(
+        unique_class->getPinAccessIdx());
+    for (auto inst : unique_class->getInsts()) {
+      pattern_insts.insert(inst);
+    }
   }
+  std::vector<UniqueClass*> dirty_unique_classes_vec(
+      dirty_unique_classes.begin(), dirty_unique_classes.end());
+  for (auto& unique_class : dirty_unique_classes_vec) {
+    unique_inst_patterns_[unique_class]
+        = std::vector<std::unique_ptr<FlexPinAccessPattern>>();
+  }
+#pragma omp parallel for schedule(dynamic)
+  for (auto& unique_class : dirty_unique_classes_vec) {
+    initSkipInstTerm(unique_class);
+    auto candidate_inst = unique_class->getFirstInst();
+    genInstAccessPoints(candidate_inst);
+    if (isStdCell(candidate_inst)) {
+      prepPatternInst(candidate_inst);
+    }
+    revertAccessPoints(candidate_inst);
+  }
+  for (auto& inst : dirty_insts_) {
+    addToInstsSet(inst);
+  }
+  for (auto& unique_class : dirty_unique_classes) {
+    // In case of unique class that was previously skipped
+    for (auto& inst : unique_class->getInsts()) {
+      addToInstsSet(inst);
+    }
+  }
+  frOrderedIdSet<frInst*> processed_insts;
+  std::vector<std::vector<frInst*>> inst_rows;
+  for (auto& inst : pattern_insts) {
+    if (processed_insts.find(inst) != processed_insts.end() || isSkipInst(inst)
+        || !isStdCell(inst)) {
+      continue;
+    }
+    std::vector<frInst*> inst_row = getAdjacentInstancesCluster(inst);
+    processed_insts.insert(inst_row.begin(), inst_row.end());
+    inst_rows.push_back(inst_row);
+  }
+#pragma omp parallel for schedule(dynamic)
+  for (auto& inst_row : inst_rows) {
+    genInstRowPattern(inst_row);
+  }
+  dirty_insts_.clear();
+}
+
+void FlexPA::deleteInst(frInst* inst)
+{
+  removeDirtyInst(inst);
+  auto unique_class = unique_insts_.getUniqueClass(inst);
+  if (unique_class == nullptr) {
+    return;
+  }
+  unique_insts_.deleteInst(inst);
 }
 
 void FlexPA::applyPatternsFile(const char* file_path)
@@ -120,7 +209,15 @@ void FlexPA::applyPatternsFile(const char* file_path)
   frIArchive ar(file);
   ar.setDesign(design_);
   registerTypes(ar);
-  ar >> unique_inst_patterns_;
+  int sz = 0;
+  ar >> sz;
+  while (sz--) {
+    frBlockObject* obj;
+    serializeBlockObject(ar, obj);
+    auto unique_class = unique_insts_.getUniqueClass(static_cast<frInst*>(obj));
+    auto& pattern = unique_inst_patterns_[unique_class];
+    ar >> pattern;
+  }
   file.close();
 }
 
@@ -155,8 +252,8 @@ void FlexPA::prep()
       }
     }
 
-    dst::JobMessage msg(dst::JobMessage::PIN_ACCESS,
-                        dst::JobMessage::BROADCAST),
+    dst::JobMessage msg(dst::JobMessage::kPinAccess,
+                        dst::JobMessage::kBroadcast),
         result;
     std::unique_ptr<PinAccessJobDescription> uDesc
         = std::make_unique<PinAccessJobDescription>();
@@ -178,25 +275,33 @@ void FlexPA::prepPattern()
 {
   ProfileTask profile("PA:pattern");
 
-  const auto& unique = unique_insts_.getUnique();
+  const auto& unique = unique_insts_.getUniqueClasses();
 
-  // revert access points to origin
+  // reserve space for unique_inst_patterns_
   unique_inst_patterns_.reserve(unique.size());
+  for (auto& unique_class : unique) {
+    unique_inst_patterns_[unique_class.get()]
+        = std::vector<std::unique_ptr<FlexPinAccessPattern>>();
+  }
 
   int cnt = 0;
 
   omp_set_num_threads(router_cfg_->MAX_THREADS);
   ThreadException exception;
 #pragma omp parallel for schedule(dynamic)
-  for (frInst* unique_inst : unique) {
+  for (auto& unique_class : unique) {
     try {
       // only do for core and block cells
       // TODO the above comment says "block cells" but that's not what the code
       // does?
-      if (!isStdCell(unique_inst)) {
+      if (unique_class->getInsts().empty()) {
         continue;
       }
-      prepPatternInst(unique_inst);
+      auto candidate_inst = *unique_class->getInsts().begin();
+      if (!isStdCell(candidate_inst)) {
+        continue;
+      }
+      prepPatternInst(candidate_inst);
 #pragma omp critical
       {
         cnt++;
@@ -215,8 +320,8 @@ void FlexPA::prepPattern()
     logger_->info(DRT, 81, "  Complete {} unique inst patterns.", cnt);
   }
   if (isDistributed()) {
-    dst::JobMessage msg(dst::JobMessage::PIN_ACCESS,
-                        dst::JobMessage::BROADCAST),
+    dst::JobMessage msg(dst::JobMessage::kPinAccess,
+                        dst::JobMessage::kBroadcast),
         result;
     std::unique_ptr<PinAccessJobDescription> uDesc
         = std::make_unique<PinAccessJobDescription>();
@@ -253,8 +358,8 @@ void FlexPA::setDistributed(const std::string& rhost,
   cloud_sz_ = cloud_sz;
 }
 
-// Skip power pins, pins connected to special nets, and dangling pins
-// (since we won't route these).
+// Skip power pins, pins connected to special nets, dangling pins and pins
+// connected by abuttment (since we won't route these).
 //
 // Checks only this inst_term and not an equivalent ones.  This
 // is a helper to isSkipInstTerm and initSkipInstTerm.
@@ -265,6 +370,9 @@ bool FlexPA::isSkipInstTermLocal(frInstTerm* in)
     return true;
   }
   auto in_net = in->getNet();
+  if (in_net && in_net->isConnectedByAbutment()) {
+    return true;
+  }
   if (in_net && !in_net->isSpecial()) {
     return false;
   }
@@ -273,13 +381,23 @@ bool FlexPA::isSkipInstTermLocal(frInstTerm* in)
 
 bool FlexPA::isSkipInstTerm(frInstTerm* in)
 {
-  auto inst_class = unique_insts_.getClass(in->getInst());
-  if (inst_class == nullptr) {
+  auto unique_class = unique_insts_.getUniqueClass(in->getInst());
+  if (unique_class == nullptr) {
     return isSkipInstTermLocal(in);
   }
 
   // This should be already computed in initSkipInstTerm()
-  return skip_unique_inst_term_.at({inst_class, in->getTerm()});
+  return unique_class->isSkipTerm(in->getTerm());
+}
+
+bool FlexPA::isSkipInst(frInst* inst)
+{
+  for (auto& inst_term : inst->getInstTerms()) {
+    if (!isSkipInstTerm(inst_term.get())) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // TODO there should be a better way to get this info by getting the master
@@ -291,9 +409,27 @@ bool FlexPA::isStdCell(frInst* inst)
 
 bool FlexPA::isMacroCell(frInst* inst)
 {
-  dbMasterType masterType = inst->getMaster()->getMasterType();
+  odb::dbMasterType masterType = inst->getMaster()->getMasterType();
   return (masterType.isBlock() || masterType.isPad()
-          || masterType == dbMasterType::RING);
+          || masterType == odb::dbMasterType::RING);
+}
+
+bool FlexPA::isStdCellTerm(frInstTerm* inst_term)
+{
+  return inst_term && isStdCell(inst_term->getInst());
+}
+
+bool FlexPA::isMacroCellTerm(frInstTerm* inst_term)
+{
+  return inst_term && isMacroCell(inst_term->getInst());
+}
+
+// It is sometimes important to understand that when PA is checking for nullptr
+// it means its checking for an io term, not a corner case with an invalid
+// inst_term. This function is made to avoid confusion
+bool FlexPA::isIOTerm(frInstTerm* inst_term)
+{
+  return inst_term == nullptr;
 }
 
 int FlexPA::main()
@@ -310,7 +446,7 @@ int FlexPA::main()
 
   int std_cell_pin_cnt = 0;
   for (auto& inst : getDesign()->getTopBlock()->getInsts()) {
-    if (inst->getMaster()->getMasterType() != dbMasterType::CORE) {
+    if (inst->getMaster()->getMasterType() != odb::dbMasterType::CORE) {
       continue;
     }
     for (auto& inst_term : inst->getInstTerms()) {

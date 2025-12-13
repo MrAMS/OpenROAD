@@ -6,7 +6,7 @@
 #include <mutex>
 #include <vector>
 
-#include "odb.h"
+#include "odb/odb.h"
 namespace utl {
 class Logger;
 }
@@ -22,11 +22,6 @@ class dbTech;
 
 class defin
 {
-  definReader* _reader;
-
-  // Protects the DefParser namespace that has static variables
-  static std::mutex _def_mutex;
-
  public:
   enum MODE
   {
@@ -45,23 +40,19 @@ class defin
   void skipBlockWires();
   void skipFillWires();
   void continueOnErrors();
-  void namesAreDBIDs();
-  void setAssemblyMode();
   void useBlockName(const char* name);
 
   /// Create a new chip
-  dbChip* createChip(std::vector<dbLib*>& search_libs,
-                     const char* def_file,
-                     odb::dbTech* tech);
+  void readChip(std::vector<dbLib*>& search_libs,
+                const char* def_file,
+                dbChip* chip,
+                bool issue_callback = true);
 
-  /// Create a new hierachical block
-  dbBlock* createBlock(dbBlock* parent,
-                       std::vector<dbLib*>& search_libs,
-                       const char* def_file,
-                       odb::dbTech* tech);
+ private:
+  definReader* reader_;
 
-  /// Replace the wires of this block.
-  bool replaceWires(dbBlock* block, const char* def_file);
+  // Protects the DefParser namespace that has static variables
+  static std::mutex def_mutex_;
 };
 
 }  // namespace odb

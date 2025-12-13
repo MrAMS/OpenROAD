@@ -9,10 +9,10 @@ on:
     - master
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
+  Black:
+    runs-on: ${{ vars.USE_SELF_HOSTED == 'true' && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Run black
         uses: psf/black@stable

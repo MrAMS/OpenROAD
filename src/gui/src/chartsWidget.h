@@ -9,15 +9,22 @@
 #include <QMenu>
 #include <QPushButton>
 #include <QString>
+#include <QWidget>
 #include <QtCharts>
+#include <deque>
 #include <limits>
+#include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include "gui/gui.h"
+#include "sta/SdcClass.hh"
 #include "staGuiInterface.h"
+#include "utl/histogram.h"
 
 namespace sta {
 class Pin;
@@ -30,9 +37,7 @@ namespace gui {
 struct SlackHistogramData
 {
   StaPins constrained_pins;
-  std::set<sta::Clock*> clocks;
-  float min = std::numeric_limits<float>::max();
-  float max = std::numeric_limits<float>::lowest();
+  sta::ClockSet clocks;
 };
 
 struct Buckets
@@ -55,7 +60,7 @@ class HistogramView : public QChartView
 
   void clear();
   void setData(const SlackHistogramData& data);
-  void setData(const EndPointSlackMap& data);
+  void setData(const EndPointSlackMap& data, sta::ClockSet* clocks);
 
   void save(const QString& path);
 
@@ -73,20 +78,21 @@ class HistogramView : public QChartView
   void contextMenuEvent(QContextMenuEvent* event) override;
 
  private:
-  void setBucketInterval();
+  float computeBucketInterval();
   float computeSnapBucketInterval(float exact_interval);
   float computeSnapBucketDecimalInterval(float minimum_interval);
-  int computeNumberofBuckets(float bucket_interval,
-                             float max_slack,
-                             float min_slack);
   int computeNumberOfDigits(float value);
 
+  void populateBins();
+  void populateBuckets(
+      const std::vector<std::vector<const sta::Pin*>>& pin_bins);
   void setVisualConfig();
 
-  void populateBuckets(const StaPins* end_points,
-                       const EndPointSlackMap* end_point_to_slack);
-  std::pair<QBarSet*, QBarSet*> createBarSets();
-  void populateBarSets(QBarSet& neg_set, QBarSet& pos_set);
+  std::tuple<QBarSet*, QBarSet*, QBarSet*, QBarSet*> createBarSets();
+  void populateBarSets(QBarSet& neg_set,
+                       QBarSet& pos_set,
+                       QBarSet& neg_set_invisible,
+                       QBarSet& pos_set_invisible);
 
   void setXAxisConfig(int all_bars_count);
   void setXAxisTitle();
@@ -94,8 +100,6 @@ class HistogramView : public QChartView
   int computeYInterval(int largest_slack_count);
   int computeMaxYSnap(int largest_slack_count);
   int computeFirstDigit(int value, int digits);
-
-  void setLimits(const EndPointSlackMap& end_point_to_slack);
 
   utl::Logger* logger_;
   STAGuiInterface* sta_{nullptr};
@@ -107,16 +111,15 @@ class HistogramView : public QChartView
   QMenu* menu_;
 
   // Settings
-  float max_slack_;
-  float min_slack_;
-  float bucket_interval_;
   int precision_count_;  // Used to configure the x labels.
 
   // Data
-  std::set<sta::Clock*> clocks_;
+  sta::ClockSet clocks_;
   Buckets buckets_;
+  std::unique_ptr<utl::Histogram<float>> histogram_;
 
-  static constexpr int default_number_of_buckets_ = 15;
+  static constexpr int kDefaultNumberOfBuckets = 15;
+  static constexpr int kMinimumNumberOfBuckets = 8;
 };
 
 class ChartsWidget : public QDockWidget
@@ -126,9 +129,9 @@ class ChartsWidget : public QDockWidget
  public:
   enum Mode
   {
-    SELECT,
-    SETUP_SLACK,
-    HOLD_SLACK
+    kSelect,
+    kSetupSlack,
+    kHoldSlack
   };
 
   ChartsWidget(QWidget* parent = nullptr);
@@ -143,6 +146,9 @@ class ChartsWidget : public QDockWidget
                  const std::optional<int>& height_px);
 
   Mode modeFromString(const std::string& mode) const;
+  Chart* addChart(const std::string& name,
+                  const std::string& x_label,
+                  const std::vector<std::string>& y_labels);
 
  signals:
   void endPointsToReport(const std::set<const sta::Pin*>& report_pins,
@@ -160,8 +166,11 @@ class ChartsWidget : public QDockWidget
   void setSlackHistogram();
   void setSlackHistogramLayout();
   void setModeMenu();
+  void clearMenus();
 
-  void setData(HistogramView* view, const std::string& path_group) const;
+  void setData(HistogramView* view,
+               const std::string& path_group,
+               sta::Clock* clock);
 
   SlackHistogramData fetchSlackHistogramData() const;
   void removeUnconstrainedPinsAndSetLimits(SlackHistogramData& data) const;
@@ -170,15 +179,20 @@ class ChartsWidget : public QDockWidget
   sta::dbSta* sta_;
   std::unique_ptr<STAGuiInterface> stagui_;
 
+  QTabWidget* chart_tabs_;
+
   QComboBox* mode_menu_;
-  QComboBox* filters_menu_;
+  QComboBox* path_group_menu_;
+  QComboBox* clock_menu_;
   HistogramView* display_;
   QPushButton* refresh_filters_button_;
 
   std::string path_group_name_;  // Current selected filter
   std::map<int, std::string> filter_index_to_path_group_name_;
+  std::map<int, sta::Clock*> clock_index_to_clock_;
+  sta::ClockSet all_clocks_;
+  sta::Clock* clock_filter_;
 
-  int prev_filter_index_;
   bool resetting_menu_;
 
   QLabel* label_;

@@ -3,13 +3,13 @@
 
 #pragma once
 
+#include <cstdio>
 #include <vector>
 
-#include "extprocess.h"
+#include "rcx/extprocess.h"
 
 namespace rcx {
 using utl::Logger;
-using utl::RCX;
 
 class extProcess;
 

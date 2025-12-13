@@ -4,13 +4,16 @@
 #pragma once
 
 #include <functional>
+#include <list>
 #include <memory>
 #include <string>
 
-#include "extPattern.h"
-#include "extRCap.h"
-#include "ext_options.h"
+#include "odb/db.h"
+#include "odb/dbObject.h"
 #include "rcx/extModelGen.h"
+#include "rcx/extPattern.h"
+#include "rcx/extRCap.h"
+#include "rcx/ext_options.h"
 
 namespace utl {
 class Logger;
@@ -23,13 +26,9 @@ using utl::Logger;
 class Ext
 {
  public:
-  Ext();
-  ~Ext() = default;
+  Ext(odb::dbDatabase* db, Logger* logger, const char* spef_version);
+  ~Ext();
 
-  void init(odb::dbDatabase* db,
-            Logger* logger,
-            const char* spef_version,
-            const std::function<void()>& rcx_init);
   void setLogger(Logger* logger);
 
   void bench_wires_gen(const PatternOptions& opt);

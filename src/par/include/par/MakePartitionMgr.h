@@ -3,18 +3,12 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace par {
+
 class PartitionMgr;
-}
 
-namespace ord {
+void initPartitionMgr(Tcl_Interp* tcl_interp);
 
-class OpenRoad;
-
-par::PartitionMgr* makePartitionMgr();
-
-void initPartitionMgr(OpenRoad* openroad);
-
-void deletePartitionMgr(par::PartitionMgr* partitionmgr);
-
-}  // namespace ord
+}  // namespace par

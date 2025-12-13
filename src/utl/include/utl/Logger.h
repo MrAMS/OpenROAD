@@ -5,12 +5,20 @@
 
 #include <array>
 #include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <iomanip>
+#include <ios>
+#include <list>
 #include <map>
 #include <memory>
+#include <ostream>
 #include <sstream>
 #include <stack>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -37,11 +45,15 @@ class Progress;
 // Keep this sorted
 #define FOREACH_TOOL(X) \
   X(ANT)                \
+  X(CGT)                \
   X(CTS)                \
+  X(CUT)                \
   X(DFT)                \
   X(DPL)                \
   X(DRT)                \
   X(DST)                \
+  X(EST)                \
+  X(EXA)                \
   X(FIN)                \
   X(FLW)                \
   X(GPL)                \
@@ -56,12 +68,14 @@ class Progress;
   X(PDN)                \
   X(PPL)                \
   X(PSM)                \
+  X(RAM)                \
   X(RCX)                \
   X(RMP)                \
   X(RSZ)                \
   X(STA)                \
   X(STT)                \
   X(TAP)                \
+  X(TST)                \
   X(UKN)                \
   X(UPF)                \
   X(UTL)
@@ -122,7 +136,7 @@ class Logger
   // below)
   template <typename... Args>
   void debug(ToolId tool,
-             const std::string& group,
+             const char* group,
              const std::string& message,
              const Args&... args)
   {
@@ -255,6 +269,8 @@ class Logger
   void teeStringBegin();
   std::string teeStringEnd();
 
+  static Logger* defaultLogger();
+
   // Progress interface
   Progress* progress() const { return progress_.get(); }
   std::unique_ptr<Progress> swapProgress(Progress* progress);
@@ -274,6 +290,7 @@ class Logger
            const Args&... args)
   {
     assert(id >= 0 && id <= max_message_id);
+    message_levels_[tool][id].store(level, std::memory_order_relaxed);
     auto& counter = message_counters_[tool][id];
     auto count = counter++;
     if (count < max_message_print) {
@@ -314,6 +331,9 @@ class Logger
 
   void flushMetrics();
   void finalizeMetrics();
+  // Add new metrics for non-zero warnings. It also counts the number of
+  // unique warning types.
+  void addWarningMetrics();
 
   void setRedirectSink(std::ostream& sink_stream, bool keep_sinks = false);
   void restoreFromRedirect();
@@ -355,6 +375,9 @@ class Logger
   // from multiple threads without locks.
   using MessageCounter = std::array<std::atomic_int16_t, max_message_id + 1>;
   std::array<MessageCounter, ToolId::SIZE> message_counters_;
+  using MessageLevel
+      = std::array<std::atomic<spdlog::level::level_enum>, max_message_id + 1>;
+  std::array<MessageLevel, ToolId::SIZE> message_levels_;
   std::array<DebugGroups, ToolId::SIZE> debug_group_level_;
   bool debug_on_{false};
   std::atomic_int warning_count_{0};

@@ -3,17 +3,12 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace psm {
+
 class PDNSim;
-}
 
-namespace ord {
-class OpenRoad;
+void initPDNSim(Tcl_Interp* tcl_interp);
 
-psm::PDNSim* makePDNSim();
-
-void initPDNSim(OpenRoad* openroad);
-
-void deletePDNSim(psm::PDNSim* pdnsim);
-
-}  // namespace ord
+}  // namespace psm

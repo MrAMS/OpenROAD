@@ -34,6 +34,7 @@
 #include <cstring>
 
 #include "defiDebug.hpp"
+#include "defiKRDefs.hpp"
 #include "defrData.hpp"
 
 BEGIN_DEF_PARSER_NAMESPACE
@@ -81,8 +82,9 @@ void defiGeometries::startList(int x, int y)
     x_ = (int*) malloc(sizeof(int) * 16);
     y_ = (int*) malloc(sizeof(int) * 16);
     numPoints_ = 0;
-  } else  // reset the numPoints to 0
+  } else {  // reset the numPoints to 0
     numPoints_ = 0;
+  }
   addToList(x, y);
 }
 

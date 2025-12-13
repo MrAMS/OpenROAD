@@ -9,49 +9,29 @@
 #include "grt/GlobalRouter.h"
 #include "heatMap.h"
 #include "heatMapRudy.h"
-#include "ord/OpenRoad.hh"
+#include "tcl.h"
 #include "utl/decode.h"
-
-namespace grt {
-// Tcl files encoded into strings.
-extern const char* grt_tcl_inits[];
-}  // namespace grt
 
 extern "C" {
 extern int Grt_Init(Tcl_Interp* interp);
 }
 
-namespace ord {
+namespace grt {
 
-grt::GlobalRouter* makeGlobalRouter()
+// Tcl files encoded into strings.
+extern const char* grt_tcl_inits[];
+
+void initGui(grt::GlobalRouter* grt, odb::dbDatabase* db, utl::Logger* logger)
 {
-  return new grt::GlobalRouter();
+  grt->initGui(std::make_unique<grt::RoutingCongestionDataSource>(logger, db),
+               std::make_unique<grt::RUDYDataSource>(logger, grt, db));
 }
 
-void deleteGlobalRouter(grt::GlobalRouter* global_router)
+void initTcl(Tcl_Interp* tcl_interp)
 {
-  delete global_router;
-}
-
-void initGlobalRouter(OpenRoad* openroad)
-{
-  Tcl_Interp* tcl_interp = openroad->tclInterp();
   // Define swig TCL commands.
   Grt_Init(tcl_interp);
   utl::evalTclInit(tcl_interp, grt::grt_tcl_inits);
-  openroad->getGlobalRouter()->init(
-      openroad->getLogger(),
-      openroad->getSteinerTreeBuilder(),
-      openroad->getDb(),
-      openroad->getSta(),
-      openroad->getResizer(),
-      openroad->getAntennaChecker(),
-      openroad->getOpendp(),
-      std::make_unique<grt::RoutingCongestionDataSource>(openroad->getLogger(),
-                                                         openroad->getDb()),
-      std::make_unique<grt::RUDYDataSource>(openroad->getLogger(),
-                                            openroad->getGlobalRouter(),
-                                            openroad->getDb()));
 }
 
-}  // namespace ord
+}  // namespace grt

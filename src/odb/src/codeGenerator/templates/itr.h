@@ -1,3 +1,4 @@
+{% import 'macros.jinja' as macros %}
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2019-2025, The OpenROAD Authors
 
@@ -6,14 +7,12 @@
 
 #include "odb/dbIterator.h"
 #include "odb/odb.h"
+#include "dbCore.h"
 // User Code Begin Includes
 // User Code End Includes
 
 namespace odb {
   class _{{itr.parentObject}};
-
-  template <class T>
-  class dbTable;
 
   //User Code Begin classes
   //User Code End classes
@@ -21,21 +20,21 @@ namespace odb {
   class {{itr.name}} : public dbIterator
   {
   public:
-    {{itr.name}}(dbTable<_{{itr.parentObject}}>* {{itr.tableName}}) { _{{itr.tableName}} = {{itr.tableName}}; }
+    {{itr.name}}({{macros.table_type(itr)}}* {{itr.tableName}}) { {{itr.tableName}}_ = {{itr.tableName}}; }
 
-    bool      reversible() override;
-    bool      orderReversed() override;
+    bool      reversible() const override;
+    bool      orderReversed() const override;
     void      reverse(dbObject* parent) override;
-    uint      sequential() override;
-    uint      size(dbObject* parent) override;
-    uint      begin(dbObject* parent) override;
-    uint      end(dbObject* parent) override;
-    uint      next(uint id, ...) override;
+    uint      sequential() const override;
+    uint      size(dbObject* parent) const override;
+    uint      begin(dbObject* parent) const override;
+    uint      end(dbObject* parent) const override;
+    uint      next(uint id, ...) const override;
     dbObject* getObject(uint id, ...) override;
     // User Code Begin Methods
     // User Code End Methods
   private:
-    dbTable<_{{itr.parentObject}}>* _{{itr.tableName}};
+    {{macros.table_type(itr)}}* {{itr.tableName}}_;
     // User Code Begin Fields
     // User Code End Fields
   };

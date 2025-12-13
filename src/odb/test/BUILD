@@ -1,29 +1,155 @@
+load("@openroad_rules_python//python:defs.bzl", "py_library", "py_test")
+
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2022-2025, The OpenROAD Authors
 load("//test:regression.bzl", "regression_test")
 
-PASSFAIL_TESTS = [
-    # FIXME not supported yet
-    # "cpp_tests",
-    "dump_netlists",
-    "dump_netlists_withfill",
-    "test_block",
-    "test_bterm",
-    "test_destroy",
-    "test_group",
-    "test_inst",
-    "test_iterm",
-    "test_module",
-    "test_net",
-    "test_wire_codec",
-]
+package(features = ["layering_check"])
+
+py_library(
+    name = "helper",
+    srcs = [
+        "helper.py",
+    ],
+    imports = ["."],
+)
+
+py_library(
+    name = "odbUnitTest",
+    srcs = [
+        "odbUnitTest.py",
+    ],
+    imports = ["."],
+)
+
+py_test(
+    name = "test_block",
+    srcs = [
+        "test_block.py",
+    ],
+    deps = [
+        ":helper",
+        ":odbUnitTest",
+        "//openroad:openroadpy",
+        "//src/odb:odb_py",
+    ],
+)
+
+py_test(
+    name = "test_bterm",
+    srcs = [
+        "test_bterm.py",
+    ],
+    deps = [
+        ":helper",
+        ":odbUnitTest",
+        "//openroad:openroadpy",
+        "//src/odb:odb_py",
+    ],
+)
+
+py_test(
+    name = "test_destroy",
+    srcs = [
+        "test_destroy.py",
+    ],
+    deps = [
+        ":helper",
+        ":odbUnitTest",
+        "//openroad:openroadpy",
+        "//src/odb:odb_py",
+    ],
+)
+
+py_test(
+    name = "test_group",
+    srcs = [
+        "test_group.py",
+    ],
+    deps = [
+        ":helper",
+        ":odbUnitTest",
+        "//openroad:openroadpy",
+        "//src/odb:odb_py",
+    ],
+)
+
+py_test(
+    name = "test_inst",
+    srcs = [
+        "test_inst.py",
+    ],
+    deps = [
+        ":helper",
+        ":odbUnitTest",
+        "//openroad:openroadpy",
+        "//src/odb:odb_py",
+    ],
+)
+
+py_test(
+    name = "test_iterm",
+    srcs = [
+        "test_iterm.py",
+    ],
+    deps = [
+        ":helper",
+        ":odbUnitTest",
+        "//openroad:openroadpy",
+        "//src/odb:odb_py",
+    ],
+)
+
+py_test(
+    name = "test_module",
+    srcs = [
+        "test_module.py",
+    ],
+    deps = [
+        ":helper",
+        ":odbUnitTest",
+        "//openroad:openroadpy",
+        "//src/odb:odb_py",
+    ],
+)
+
+py_test(
+    name = "test_net",
+    srcs = [
+        "test_net.py",
+    ],
+    deps = [
+        ":helper",
+        ":odbUnitTest",
+        "//openroad:openroadpy",
+        "//src/odb:odb_py",
+    ],
+)
+
+py_test(
+    name = "test_wire_codec",
+    srcs = [
+        "test_wire_codec.py",
+    ],
+    deps = [
+        ":helper",
+        ":odbUnitTest",
+        "//openroad:openroadpy",
+        "//src/odb:odb_py",
+    ],
+)
 
 # From CMakeLists.txt or_integration_tests(TESTS
 COMPULSORY_TESTS = [
     "abstract_origin",
+    "all_pins_placed1",
+    "all_pins_placed2",
     "bterm_hier_create",
     "check_routing_tracks",
+    "create_blockage",
+    "create_obstruction",
     "create_sboxes",
+    "def_dup_net",
     "def_parser",
     "design_is_routed1",
     "design_is_routed2",
@@ -31,6 +157,8 @@ COMPULSORY_TESTS = [
     "design_is_routed_fail1",
     "design_is_routed_fail2",
     "dont_touch",
+    "dump_netlists",
+    "dump_netlists_withfill",
     "dump_nets",
     "dump_via_rules",
     "dump_vias",
@@ -38,6 +166,7 @@ COMPULSORY_TESTS = [
     "edit_via_params",
     "floorplan_initialize",
     "floorplan_initialize2",
+    "floorplan_initialize3",
     "gcd_abstract_lef",
     "gcd_abstract_lef_with_power",
     "gcd_def_access",
@@ -49,6 +178,8 @@ COMPULSORY_TESTS = [
     "ndr",
     "polygon",
     "read_abstract_lef",
+    "read_3dbv",
+    "read_3dbx",
     "read_db",
     "read_def",
     "read_def58",
@@ -58,16 +189,36 @@ COMPULSORY_TESTS = [
     "replace_hier_mod2",
     "replace_hier_mod3",
     "replace_hier_mod4",
+    "replace_hier_mod5",
+    "replace_hier_mod6",
+    "replace_hier_mod_report_checks",
     "rounding",
     "row_settings",
     "sky130hd_multi_patterned",
     "smash_vias",
     "transform",
     "wire_encoder",
+    "write_cdl",
+    "write_3dbv",
+    "write_3dbx",
     "write_def58",
+    "write_def58_gzip",
     "write_lef_and_def",
     "write_lef_polygon",
     "write_macro_placement",
+]
+
+PASSFAIL_TESTS = [
+    # pass-fail
+    "test_block",
+    "test_bterm",
+    "test_destroy",
+    "test_group",
+    "test_inst",
+    "test_iterm",
+    "test_module",
+    "test_net",
+    "test_wire_codec",
 ]
 
 # Disabled in CMakeLists.txt
@@ -76,7 +227,14 @@ MANUAL_TESTS = [
     "odb_readme_msgs_check",
 ]
 
-ALL_TESTS = COMPULSORY_TESTS + MANUAL_TESTS
+# TODO: Enable once difference between bazel and ctest is resolved.
+MANUAL_FOR_BAZEL_TESTS = [
+    "dump_netlists",
+    "dump_netlists_withfill",
+    "replace_hier_mod1",
+]
+
+ALL_TESTS = COMPULSORY_TESTS + MANUAL_TESTS + PASSFAIL_TESTS
 
 filegroup(
     name = "regression_resources",
@@ -97,6 +255,7 @@ filegroup(
         "Nangate45/Nangate45_stdcell.lef",
         "Nangate45/Nangate45_tech.lef",
         "Nangate45/Nangate45_typ.lib",
+        "Nangate45/fake_bumps.lef",
         "Nangate45/fake_macros.lef",
         "Nangate45/fake_macros.lib",
         "Nangate45/fakeram45.cfg",
@@ -116,12 +275,14 @@ filegroup(
         "NangateOpenCellLibrary.cdl",
         "data/ICEWall/dummy_pads.lef",
         "data/ICEWall/octilinear.def",
-        "data/Nangate45/NangateOpenCellLibrary.mod.lef",
-        "data/Nangate45/OpenCellLibraryLicenseSi2.txt",
         "data/design.def",
         "data/design.def.gz",
         "data/design.odb",
         "data/design58.def",
+        "data/example.3dbv",
+        "data/example.3dbx",
+        "data/example.bmap",
+        "data/example1.bmap",
         "data/floorplan_initialize.def",
         "data/floorplan_initialize.v",
         "data/floorplan_initialize2.def",
@@ -137,7 +298,6 @@ filegroup(
         "data/gscl45nm_polygon.lef",
         "data/lef58class_gscl45nm.lef",
         "data/mask.lef",
-        "data/nangate45_polygon_floorplan.def",
         "data/ndr.def",
         "data/parser_test.def",
         "data/rounding.def",
@@ -149,8 +309,11 @@ filegroup(
         "gcd_adder.v",
         "gcd_adder2.v",
         "gcd_adder4.v",
+        "gcd_adder5.v",
         "helper.tcl",
         "helpers.tcl",
+        "replace_hier_mod1.v",
+        "replace_hier_mod6.v",
         "replace_hier_mod_undo.tcl",
         "replace_hier_mod_undo2.tcl",
         "sky130hd/sky130_fd_sc_hd__ff_n40C_1v95.lib",
@@ -170,12 +333,13 @@ filegroup(
         "sky130hd/sky130hd_vt.tlef",
         "sky130hd/work_around_yosys/formal_pdk.v",
     ],
+    visibility = ["//src/odb/test/cpp:__subpackages__"],
 )
 
 [
     filegroup(
         name = test_name + "_resources",
-        data = [
+        srcs = [
             ":regression_resources",
             "//src/odb/test/data/sky130hd:lef-test-data",
         ] + glob(
@@ -183,11 +347,29 @@ filegroup(
                 test_name + ".*",
             ],
         ) + {
+            "all_pins_placed1": [
+                "floorplan_initialize3.def",
+            ],
+            "all_pins_placed2": [
+                "design_is_routed1.def",
+            ],
+            "create_obstruction": [
+                "create_blockage.def",
+            ],
+            "dump_netlists": [
+                "dump_netlists_cdl.ok",
+            ],
+            "dump_netlists_withfill": [
+                "dump_netlists_withfill_cdl.ok",
+            ],
             "read_abstract_lef": [
                 "gcd_abstract_lef.lefok",
             ],
             "replace_hier_mod4": [
                 "gcd_abstract_lef.lefok",
+            ],
+            "write_cdl": [
+                "write_cdl_escaped.cdl",
             ],
         }.get(
             test_name,
@@ -200,8 +382,11 @@ filegroup(
 [
     regression_test(
         name = test_name,
+        check_log = False if test_name in PASSFAIL_TESTS else True,
+        check_passfail = True if test_name in PASSFAIL_TESTS else False,
         data = [":" + test_name + "_resources"],
-        tags = [] if test_name in COMPULSORY_TESTS else ["manual"],
+        tags = ["manual"] if test_name in MANUAL_TESTS or
+                             test_name in MANUAL_FOR_BAZEL_TESTS else [],
         visibility = ["//visibility:public"],
     )
     for test_name in ALL_TESTS

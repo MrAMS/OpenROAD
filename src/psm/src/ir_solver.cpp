@@ -3,30 +3,40 @@
 
 #include "ir_solver.h"
 
-#include <Eigen/SparseLU>
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <fstream>
-#include <list>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
 #include <queue>
 #include <set>
+#include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
+#include "boost/geometry/geometry.hpp"
 #include "connection.h"
 #include "db_sta/dbNetwork.hh"
+#include "est/EstimateParasitics.h"
 #include "ir_network.h"
 #include "node.h"
+#include "odb/db.h"
 #include "odb/dbShape.h"
-#include "rsz/Resizer.hh"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
 #include "shape.h"
 #include "sta/Corner.hh"
 #include "sta/DcalcAnalysisPt.hh"
 #include "sta/Liberty.hh"
+#include "sta/MinMax.hh"
+#include "sta/NetworkClass.hh"
+#include "sta/PowerClass.hh"
 #include "sta/Sdc.hh"
+#include "utl/Logger.h"
 #include "utl/timer.h"
 
 namespace psm {
@@ -35,14 +45,14 @@ IRSolver::IRSolver(
     odb::dbNet* net,
     bool floorplanning,
     sta::dbSta* sta,
-    rsz::Resizer* resizer,
+    est::EstimateParasitics* estimate_parasitics,
     utl::Logger* logger,
     const std::map<odb::dbNet*, std::map<sta::Corner*, Voltage>>& user_voltages,
     const std::map<odb::dbInst*, std::map<sta::Corner*, Power>>& user_powers,
     const PDNSim::GeneratedSourceSettings& generated_source_settings)
     : net_(net),
       logger_(logger),
-      resizer_(resizer),
+      estimate_parasitics_(estimate_parasitics),
       sta_(sta),
       network_(new IRNetwork(net_, logger_, floorplanning)),
       gui_(nullptr),
@@ -243,7 +253,7 @@ IRSolver::ConnectivityResults IRSolver::getConnectivityResults() const
         continue;
       }
 
-      results.unconnected_nodes_.insert(node.get());
+      results.unconnected_nodes.insert(node.get());
     }
   }
 
@@ -252,7 +262,7 @@ IRSolver::ConnectivityResults IRSolver::getConnectivityResults() const
       continue;
     }
 
-    results.unconnected_iterms_.emplace(node.get());
+    results.unconnected_iterms.emplace(node.get());
   }
 
   return results;
@@ -264,8 +274,7 @@ void IRSolver::reportUnconnectedNodes() const
   const double dbu = getBlock()->getDbUnitsPerMicron();
   const auto results = getConnectivityResults();
 
-  if (results.unconnected_nodes_.empty()
-      && results.unconnected_iterms_.empty()) {
+  if (results.unconnected_nodes.empty() && results.unconnected_iterms.empty()) {
     return;
   }
 
@@ -275,10 +284,10 @@ void IRSolver::reportUnconnectedNodes() const
   odb::dbMarkerCategory* net_category = odb::dbMarkerCategory::createOrReplace(
       tool_category, net_->getName().c_str());
 
-  if (!results.unconnected_nodes_.empty()) {
+  if (!results.unconnected_nodes.empty()) {
     odb::dbMarkerCategory* category
         = odb::dbMarkerCategory::create(net_category, "Unconnected node");
-    for (auto* node : results.unconnected_nodes_) {
+    for (auto* node : results.unconnected_nodes) {
       logger_->warn(utl::PSM,
                     38,
                     "Unconnected node on net {} at location ({:4.3f}um, "
@@ -298,9 +307,9 @@ void IRSolver::reportUnconnectedNodes() const
     }
   }
 
-  if (!results.unconnected_iterms_.empty()) {
+  if (!results.unconnected_iterms.empty()) {
     std::set<odb::dbInst*> insts;
-    for (const auto& node : results.unconnected_iterms_) {
+    for (const auto& node : results.unconnected_iterms) {
       insts.insert(node->getITerm()->getInst());
       logger_->warn(utl::PSM,
                     39,
@@ -369,7 +378,8 @@ Connection::ResistanceMap IRSolver::getResistanceMap(sta::Corner* corner) const
     switch (layer->getType()) {
       case odb::dbTechLayerType::ROUTING: {
         double r_per_meter, cap_per_meter;
-        resizer_->layerRC(layer, corner, r_per_meter, cap_per_meter);
+        estimate_parasitics_->layerRC(
+            layer, corner, r_per_meter, cap_per_meter);
         const double width_meter
             = static_cast<double>(layer->getWidth()) / dbus * 1e-6;
         res = r_per_meter * width_meter;
@@ -377,7 +387,7 @@ Connection::ResistanceMap IRSolver::getResistanceMap(sta::Corner* corner) const
       }
       case odb::dbTechLayerType::CUT: {
         double cap;
-        resizer_->layerRC(layer, corner, res, cap);
+        estimate_parasitics_->layerRC(layer, corner, res, cap);
         break;
       }
       default:
@@ -388,7 +398,7 @@ Connection::ResistanceMap IRSolver::getResistanceMap(sta::Corner* corner) const
                utl::PSM,
                "resistance",
                2,
-               "Resizer resistance for {} = {}",
+               "Estimate parasitics resistance for {} = {}",
                layer->getName(),
                res);
     if (res == 0.0) {
@@ -421,7 +431,9 @@ Connection::ResistanceMap IRSolver::getResistanceMap(sta::Corner* corner) const
 }
 
 Connection::ConnectionMap<Connection::Conductance>
-IRSolver::generateConductanceMap(sta::Corner* corner) const
+IRSolver::generateConductanceMap(
+    sta::Corner* corner,
+    const std::vector<std::unique_ptr<Connection>>& connections) const
 {
   const utl::DebugScopedTimer timer(
       logger_, utl::PSM, "timer", 1, "Generate conductance map: {}");
@@ -429,7 +441,7 @@ IRSolver::generateConductanceMap(sta::Corner* corner) const
   const Connection::ResistanceMap resistance = getResistanceMap(corner);
 
   Connection::ConnectionMap<Connection::Conductance> conductance;
-  for (const auto& conn : network_->getConnections()) {
+  for (const auto& conn : connections) {
     const auto res = conn->getResistance(resistance);
     conductance[conn.get()] = 1.0 / res;
   }
@@ -456,13 +468,13 @@ IRSolver::Voltage IRSolver::generateSourceNodes(
 
     if (sources.empty()) {
       switch (source_type) {
-        case GeneratedSourceType::FULL:
+        case GeneratedSourceType::kFull:
           sources = generateSourceNodesGenericFull();
           break;
-        case GeneratedSourceType::STRAPS:
+        case GeneratedSourceType::kStraps:
           sources = generateSourceNodesGenericStraps();
           break;
-        case GeneratedSourceType::BUMPS:
+        case GeneratedSourceType::kBumps:
           sources = generateSourceNodesGenericBumps();
           break;
       }
@@ -491,7 +503,7 @@ IRSolver::generateSourceNodesFromBTerms() const
 
   std::vector<std::unique_ptr<SourceNode>> src_nodes;
 
-  for (auto* root_node : network_->getBPinShapeNodes()) {
+  for (Node* root_node : network_->getBPinShapeNodes()) {
     src_nodes.push_back(std::make_unique<SourceNode>(root_node));
   }
 
@@ -775,23 +787,26 @@ IRSolver::Voltage IRSolver::generateSourceNodesFromSourceFile(
   return src_voltage;
 }
 
-void IRSolver::buildNodeCurrentMap(sta::Corner* corner,
-                                   ValueNodeMap<Current>& currents) const
+IRSolver::Power IRSolver::buildNodeCurrentMap(
+    sta::Corner* corner,
+    ValueNodeMap<Current>& currents) const
 {
   const utl::DebugScopedTimer timer(
       logger_, utl::PSM, "timer", 1, "Build node/current map: {}");
   // Build power map
+  std::map<odb::dbInst*, Power> instance_powers;
   const auto inst_nodes = network_->getInstanceNodeMapping();
   const Voltage power_voltage = getPowerNetVoltage(corner);
   if (power_voltage == 0) {
     logger_->error(utl::PSM, 74, "Unable to determine voltage for power nets.");
   }
   for (const auto& [inst, power] : getInstancePower(corner)) {
-    const Current current = power / power_voltage;
     auto find_inst = inst_nodes.find(inst);
     if (find_inst == inst_nodes.end()) {
       continue;
     }
+    instance_powers[inst] = power;
+    const Current current = power / power_voltage;
     const auto& nodes = find_inst->second;
     for (auto* node : nodes) {
       currents[node] += current / nodes.size();
@@ -813,12 +828,19 @@ void IRSolver::buildNodeCurrentMap(sta::Corner* corner,
       continue;
     }
 
+    instance_powers[inst] = find_power->second;
     const Current current = find_power->second / power_voltage;
     const auto& nodes = find_inst->second;
     for (auto* node : nodes) {
       currents[node] += current / nodes.size();
     }
   }
+
+  Power total_power = 0.0;
+  for (const auto& [inst, power] : instance_powers) {
+    total_power += power;
+  }
+  return total_power;
 }
 
 std::map<Node*, Connection::ConnectionSet> IRSolver::getNodeConnectionMap(
@@ -867,8 +889,8 @@ void IRSolver::buildCondMatrixAndVoltages(
     const ValueNodeMap<Current>& currents,
     const Connection::ConnectionMap<Connection::Conductance>& conductance,
     const std::map<Node*, std::size_t>& node_index,
-    Eigen::SparseMatrix<Connection::Conductance>& G,
-    Eigen::VectorXd& J) const
+    Eigen::SparseMatrix<Connection::Conductance>& g_matrix,
+    Eigen::VectorXd& j_vector) const
 {
   const utl::DebugScopedTimer timer(
       logger_, utl::PSM, "timer", 1, "Build G and J: {}");
@@ -881,9 +903,9 @@ void IRSolver::buildCondMatrixAndVoltages(
 
     auto find_node = currents.find(node);
     if (find_node == currents.end()) {
-      J[node_idx] = 0;
+      j_vector[node_idx] = 0;
     } else {
-      J[node_idx] = find_node->second;
+      j_vector[node_idx] = find_node->second;
     }
 
     Connection::Conductance node_cond = 0.0;
@@ -903,9 +925,9 @@ void IRSolver::buildCondMatrixAndVoltages(
     }
     count++;
   }
-  G.setFromTriplets(cond_values.begin(), cond_values.end());
+  g_matrix.setFromTriplets(cond_values.begin(), cond_values.end());
   if (!is_ground) {
-    for (auto& j : J) {
+    for (auto& j : j_vector) {
       j = -j;
     }
   }
@@ -916,17 +938,17 @@ void IRSolver::addSourcesToMatrixAndVoltages(
     Voltage src_voltage,
     const std::vector<std::unique_ptr<psm::SourceNode>>& sources,
     const std::map<Node*, std::size_t>& node_index,
-    Eigen::SparseMatrix<Connection::Conductance>& G,
-    Eigen::VectorXd& J) const
+    Eigen::SparseMatrix<Connection::Conductance>& g_matrix,
+    Eigen::VectorXd& j_vector) const
 {
   // Attach sources as current sources through a 1 ohm resistor
-  constexpr Connection::Resistance src_res = 1.0;
+  const Connection::Resistance src_res = 1.0;
   const Connection::Conductance src_cond = 1.0 / src_res;
 
   for (const auto& src_node : sources) {
     const std::size_t idx = node_index.at(src_node.get());
 
-    J[idx] = src_voltage / src_res;
+    j_vector[idx] = src_voltage / src_res;
 
     Node* real_node = src_node->getSource();
 
@@ -940,8 +962,8 @@ void IRSolver::addSourcesToMatrixAndVoltages(
                idx,
                real_node_idx);
 
-    G.insert(idx, real_node_idx) = src_cond;
-    G.insert(real_node_idx, idx) = src_cond;
+    g_matrix.insert(idx, real_node_idx) = src_cond;
+    g_matrix.insert(real_node_idx, idx) = src_cond;
   }
 }
 
@@ -965,7 +987,33 @@ void IRSolver::solve(sta::Corner* corner,
   voltages.clear();
   currents.clear();
 
-  const auto conductance = generateConductanceMap(corner);
+  // Build source map
+  std::vector<std::unique_ptr<SourceNode>> real_src_nodes;
+  Voltage src_voltage
+      = generateSourceNodes(source_type, source_file, corner, real_src_nodes);
+
+  std::vector<std::unique_ptr<SourceNode>> src_nodes;
+  std::vector<std::unique_ptr<Connection>> src_conns;
+  // If resistance is set, add connection from source nodes to new source and
+  // connect
+  if (generated_source_settings_.resistance > 0) {
+    src_nodes.reserve(real_src_nodes.size());
+    src_conns.reserve(real_src_nodes.size());
+    for (const auto& real_src_node : real_src_nodes) {
+      src_conns.push_back(std::make_unique<FixedResistanceConnection>(
+          real_src_node->getSource(),
+          real_src_node.get(),
+          generated_source_settings_.resistance));
+      src_nodes.push_back(std::make_unique<SourceNode>(real_src_node.get()));
+    }
+  } else {
+    src_nodes = std::move(real_src_nodes);
+    real_src_nodes.clear();
+  }
+
+  // Build conductance map
+  Connection::ConnectionMap<Connection::Conductance> conductance
+      = generateConductanceMap(corner, network_->getConnections());
   debugPrint(logger_,
              utl::PSM,
              "stats",
@@ -977,23 +1025,34 @@ void IRSolver::solve(sta::Corner* corner,
     dumpConductance(conductance, "cond");
   }
 
-  const auto node_connections = getNodeConnectionMap(conductance);
+  std::map<Node*, Connection::ConnectionSet> node_connections
+      = getNodeConnectionMap(conductance);
   Node::NodeSet all_nodes;
   for (const auto& [node, conns] : node_connections) {
     all_nodes.insert(node);
   }
 
-  buildNodeCurrentMap(corner, currents);
+  // Add source conductance
+  if (!src_conns.empty()) {
+    const auto src_conductance = generateConductanceMap(corner, src_conns);
+    for (const auto& [conn, cond] : src_conductance) {
+      conductance[conn] = cond;
+    }
+    for (const auto& [node, conns] : getNodeConnectionMap(src_conductance)) {
+      node_connections[node].insert(conns.begin(), conns.end());
+    }
+  }
 
-  // Build source map
-  std::vector<std::unique_ptr<SourceNode>> src_nodes;
-  Voltage src_voltage
-      = generateSourceNodes(source_type, source_file, corner, src_nodes);
+  const Power total_power = buildNodeCurrentMap(corner, currents);
 
   // Solve
   // create vector of nodes
   std::map<Node*, std::size_t> node_index = assignNodeIDs(all_nodes);
   const std::map<Node*, std::size_t> real_node_index = node_index;
+  for (const auto& [node, id] :
+       assignNodeIDs(real_src_nodes, node_index.size())) {
+    node_index[node] = id;
+  }
   for (const auto& [node, id] : assignNodeIDs(src_nodes, node_index.size())) {
     node_index[node] = id;
   }
@@ -1009,8 +1068,8 @@ void IRSolver::solve(sta::Corner* corner,
   debugPrint(logger_, utl::PSM, "stats", 1, "Nodes in matrix: {}", num_nodes);
 
   // create sparse matrix and vector
-  Eigen::SparseMatrix<Connection::Conductance> G(num_nodes, num_nodes);
-  Eigen::VectorXd J(num_nodes);
+  Eigen::SparseMatrix<Connection::Conductance> g_matrix(num_nodes, num_nodes);
+  Eigen::VectorXd j_vector(num_nodes);
 
   // Build G and J
   buildCondMatrixAndVoltages(src_voltage == 0.0,
@@ -1018,19 +1077,21 @@ void IRSolver::solve(sta::Corner* corner,
                              currents,
                              conductance,
                              node_index,
-                             G,
-                             J);
-  addSourcesToMatrixAndVoltages(src_voltage, src_nodes, node_index, G, J);
+                             g_matrix,
+                             j_vector);
+  addSourcesToMatrixAndVoltages(
+      src_voltage, src_nodes, node_index, g_matrix, j_vector);
 
   Eigen::SparseLU<Eigen::SparseMatrix<Connection::Conductance>> eigen_solver;
 
   debugPrint(logger_, utl::PSM, "solve", 1, "Factorizing the G matrix");
-  eigen_solver.compute(G);
+  eigen_solver.compute(g_matrix);
   if (eigen_solver.info() != Eigen::ComputationInfo::Success) {
     // decomposition failed
     if (logger_->debugCheck(utl::PSM, "dump", 1)) {
       network_->dumpNodes(node_index);
-      dumpMatrix(G, "G");
+      dumpMatrix(g_matrix, "G");
+      dumpVector(j_vector, "J");
     }
     logger_->error(
         utl::PSM,
@@ -1040,13 +1101,13 @@ void IRSolver::solve(sta::Corner* corner,
   }
 
   debugPrint(logger_, utl::PSM, "solve", 1, "Solving system of equations GV=J");
-  const Eigen::VectorXd V = eigen_solver.solve(J);
+  const Eigen::VectorXd v_vector = eigen_solver.solve(j_vector);
   if (eigen_solver.info() != Eigen::ComputationInfo::Success) {
     // solving failed
     if (logger_->debugCheck(utl::PSM, "dump", 1)) {
       network_->dumpNodes(node_index);
-      dumpMatrix(G, "G");
-      dumpVector(J, "J");
+      dumpMatrix(g_matrix, "G");
+      dumpVector(j_vector, "J");
     }
     logger_->error(utl::PSM, 12, "Solving V = inv(G)*J failed.");
   }
@@ -1058,14 +1119,15 @@ void IRSolver::solve(sta::Corner* corner,
 
   if (logger_->debugCheck(utl::PSM, "dump", 2)) {
     network_->dumpNodes(node_index);
-    dumpMatrix(G, "G");
-    dumpVector(J, "J");
-    dumpVector(V, "V");
+    dumpMatrix(g_matrix, "G");
+    dumpVector(j_vector, "J");
+    dumpVector(v_vector, "V");
   }
   for (const auto& [node, node_idx] : real_node_index) {
-    voltages[node] = V[node_idx];
+    voltages[node] = v_vector[node_idx];
   }
   solution_voltages_[corner] = src_voltage;
+  solution_power_[corner] = total_power;
 }
 
 std::map<odb::dbInst*, IRSolver::Power> IRSolver::getInstancePower(
@@ -1259,6 +1321,7 @@ IRSolver::Results IRSolver::getSolution(sta::Corner* corner) const
   }
 
   results.net_voltage = solution_voltages_.at(corner);
+  results.total_power = solution_power_.at(corner);
 
   const bool is_ground = results.net_voltage == 0.0;
   auto worst_calc = [is_ground](Voltage& worst, Voltage check) {
@@ -1346,6 +1409,7 @@ void IRSolver::report(sta::Corner* corner) const
   logger_->report("########## IR report #################");
   logger_->report("Net              : {}", net_->getName());
   logger_->report("Corner           : {}", corner->name());
+  logger_->report("Total power      : {:3.2e} W", results.total_power);
   logger_->report("Supply voltage   : {:3.2e} V", results.net_voltage);
   logger_->report("Worstcase voltage: {:3.2e} V", results.worst_voltage);
   logger_->report("Average voltage  : {:3.2e} V", results.avg_voltage);
@@ -1509,7 +1573,7 @@ void IRSolver::writeSpiceFile(GeneratedSourceType source_type,
   std::size_t current_number = 0;
   for (const auto& node : network_->getITermNodes()) {
     const auto current = currents.at(node.get());
-    if (std::abs(current) < spice_file_min_current_) {
+    if (std::abs(current) < kSpiceFileMinCurrent) {
       continue;
     }
 
@@ -1552,7 +1616,8 @@ Connection::ConnectionMap<IRSolver::Current> IRSolver::generateCurrentMap(
 {
   const auto& voltages = voltages_.at(corner);
   Connection::ConnectionMap<IRSolver::Current> currents;
-  for (const auto& [connection, cond] : generateConductanceMap(corner)) {
+  for (const auto& [connection, cond] :
+       generateConductanceMap(corner, network_->getConnections())) {
     if (connection->hasITermNode() || connection->hasBPinNode()) {
       continue;
     }

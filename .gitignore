@@ -11,6 +11,7 @@
 *.orig
 *.vscode
 *.sw[opqr]
+*.code-workspace
 TAGS
 *~
 \#*#
@@ -20,6 +21,7 @@ TAGS
 Makefile
 __pycache__
 venv/
+.abc_history
 
 include/ord/Version.hh
 
@@ -27,7 +29,6 @@ build
 build_linux
 build_mac
 test/results
-flow
 
 docs/main
 README2.md
@@ -54,7 +55,13 @@ debian/openroad
 obj-x86_64-linux-gnu/
 
 user.bazelrc
-bazel-*
-MODULE.bazel.lock
+
+# Limit ignore to these files, so we see and clean out other cruft that pollutes grep
+/bazel-*
 /.direnv
 /.envrc
+
+projectview.bazelproject
+.bsp/
+.bazelbsp/
+/buildifier

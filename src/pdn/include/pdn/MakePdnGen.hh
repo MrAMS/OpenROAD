@@ -3,20 +3,12 @@
 
 #pragma once
 
-namespace ord {
-class OpenRoad;
-}
+#include "tcl.h"
 
 namespace pdn {
+
 class PdnGen;
-}
 
-namespace ord {
+void initPdnGen(Tcl_Interp* tcl_interp);
 
-void initPdnGen(OpenRoad* openroad);
-
-pdn::PdnGen* makePdnGen();
-
-void deletePdnGen(pdn::PdnGen* pdngen);
-
-}  // namespace ord
+}  // namespace pdn

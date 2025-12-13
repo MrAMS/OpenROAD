@@ -3,28 +3,28 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
 #include "Coordinates.h"
 #include "dpl/Opendp.h"
+#include "odb/db.h"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
 
 namespace dpl {
-
-using odb::dbOrientType;
-using odb::dbSite;
-using odb::Rect;
 
 class MasterEdge
 {
  public:
-  MasterEdge(unsigned int type, const Rect& box);
+  MasterEdge(unsigned int type, const odb::Rect& box);
   unsigned int getEdgeType() const;
-  const Rect& getBBox() const;
+  const odb::Rect& getBBox() const;
 
  private:
   unsigned int edge_type_idx_{0};
-  Rect bbox_;
+  odb::Rect bbox_;
 };
 
 class Master
@@ -32,19 +32,22 @@ class Master
  public:
   bool isMultiRow() const;
   const std::vector<MasterEdge>& getEdges() const;
-  Rect getBBox() const;
+  odb::Rect getBBox() const;
   int getBottomPowerType() const;
   int getTopPowerType() const;
   void setMultiRow(bool in);
   void addEdge(const MasterEdge& edge);
   void clearEdges();
-  void setBBox(Rect box);
+  void setBBox(odb::Rect box);
   void setBottomPowerType(int bottom_pwr);
   void setTopPowerType(int top_pwr);
+  void setDbMaster(odb::dbMaster* db_master);
+  odb::dbMaster* getDbMaster() const;
 
  private:
-  Rect boundary_box_;
-  bool is_multi_row_ = false;
+  odb::dbMaster* db_master_{nullptr};
+  odb::Rect boundary_box_;
+  bool is_multi_row_{false};
   std::vector<MasterEdge> edges_;
   int bottom_pwr_{0};
   int top_pwr_{0};
@@ -76,17 +79,17 @@ class Node
   DbuY getHeight() const;
   DbuX getCenterX() const;
   DbuY getCenterY() const;
-  dbInst* getDbInst() const;
-  dbOrientType getOrient() const;
+  odb::dbInst* getDbInst() const;
+  odb::dbOrientType getOrient() const;
   bool isFixed() const;
   bool isPlaced() const;
   bool isHold() const;
-  dbSite* getSite() const;
+  odb::dbSite* getSite() const;
   DbuX siteWidth() const;
   bool isHybrid() const;
   bool isHybridParent() const;
   int64_t area() const;
-  const char* name() const;
+  std::string name() const;
   int getBottomPower() const;
   int getTopPower() const;
   Type getType() const;
@@ -95,20 +98,24 @@ class Node
   bool isStdCell() const;
   bool isBlock() const;
   Group* getGroup() const;
-  const Rect* getRegion() const;
+  const odb::Rect* getRegion() const;
   Master* getMaster() const;
   bool inGroup() const;
   int getNumPins() const;
   const std::vector<Pin*>& getPins() const;
   int getGroupId() const;
+  odb::Rect getBBox() const;
+  odb::dbBTerm* getBTerm() const;
+  uint8_t getUsedLayers() const;
 
   // setters
   void setId(int id);
   void setFixed(bool in);
-  void setDbInst(dbInst* inst);
+  void setDbInst(odb::dbInst* inst);
+  void setBTerm(odb::dbBTerm* term);
   void setLeft(DbuX x);
   void setBottom(DbuY y);
-  void setOrient(const dbOrientType& in);
+  void setOrient(const odb::dbOrientType& in);
   void setWidth(DbuX width);
   void setHeight(DbuY height);
   void setPlaced(bool in);
@@ -119,20 +126,21 @@ class Node
   void setOrigLeft(DbuX left);
   void setType(Type type);
   void setGroup(Group* in);
-  void setRegion(const Rect* in);
+  void setRegion(const odb::Rect* in);
   void setMaster(Master* in);
   void addPin(Pin* pin);
   void setGroupId(int id);
+  void addUsedLayer(int layer);
 
-  bool adjustCurrOrient(const dbOrientType& newOrient);
+  bool adjustCurrOrient(const odb::dbOrientType& newOrient);
 
  protected:
-  int id_ = 0;
-  odb::dbInst* db_inst_{nullptr};
+  int id_{0};
+  void* db_owner_{nullptr};
   // Current position; bottom corner.
   DbuX left_{0};
   DbuY bottom_{0};
-  dbOrientType orient_;
+  odb::dbOrientType orient_;
   // Original position.
   DbuX orig_left_{0};
   DbuY orig_bottom_{0};
@@ -151,11 +159,13 @@ class Node
   // Master and edges
   Master* master_{nullptr};
   Group* group_{nullptr};
-  const Rect* region_{nullptr};  // group rect
+  const odb::Rect* region_{nullptr};  // group rect
   // // Regions.
   int group_id_{-1};
   // Pins.
   std::vector<Pin*> pins_;
+  // used layers
+  uint8_t used_layers_{0};
 };
 
 class Group
@@ -163,25 +173,25 @@ class Group
  public:
   // getters
   std::string getName() const;
-  const std::vector<Rect>& getRects() const;
+  const std::vector<odb::Rect>& getRects() const;
   std::vector<Node*> getCells() const;
-  const Rect& getBBox() const;
+  const odb::Rect& getBBox() const;
   double getUtil() const;
   int getId() const;
   // setters
   void setId(int id);
   void setName(const std::string& in);
-  void addRect(const Rect& in);
+  void addRect(const odb::Rect& in);
   void addCell(Node* cell);
-  void setBoundary(const Rect& in);
+  void setBoundary(const odb::Rect& in);
   void setUtil(double in);
 
  private:
-  int id_;
+  int id_{0};
   std::string name_;
-  std::vector<Rect> region_boundaries_;
+  std::vector<odb::Rect> region_boundaries_;
   std::vector<Node*> cells_;
-  Rect boundary_;
+  odb::Rect boundary_;
   double util_{0.0};
 };
 
@@ -193,10 +203,11 @@ class Edge
   int getNumPins() const;
   const std::vector<Pin*>& getPins() const;
   void addPin(Pin* pin);
+  void removePin(Pin* pin);
   uint64_t hpwl() const;
 
  private:
-  int id_ = 0;
+  int id_{0};
   std::vector<Pin*> pins_;
 };
 
@@ -234,12 +245,12 @@ class Pin
   DbuX pinWidth_{0};
   DbuY pinHeight_{0};
   // Direction.
-  int dir_ = Dir_INOUT;
+  int dir_{Dir_INOUT};
   // Layer.
-  int pinLayer_ = 0;
+  int pinLayer_{0};
   // Node and edge for pin.
-  Node* node_ = nullptr;
-  Edge* edge_ = nullptr;
+  Node* node_{nullptr};
+  Edge* edge_{nullptr};
   // Offsets from cell center.
   DbuX offsetX_{0};
   DbuY offsetY_{0};

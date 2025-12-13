@@ -4,11 +4,15 @@
 #include "grt/Rudy.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <optional>
+#include <set>
 #include <utility>
 
 #include "grt/GRoute.h"
 #include "grt/GlobalRouter.h"
 #include "odb/dbShape.h"
+#include "odb/geom.h"
 #include "utl/Logger.h"
 
 namespace grt {
@@ -102,7 +106,7 @@ void Rudy::getResourceReductions()
   }
 }
 
-void Rudy::calculateRudy()
+void Rudy::calculateRudy(std::optional<std::set<odb::dbNet*>*> selection)
 {
   // Clear previous computation
   for (auto& grid_column : grid_) {
@@ -113,12 +117,23 @@ void Rudy::calculateRudy()
 
   getResourceReductions();
 
-  // refer: https://ieeexplore.ieee.org/document/4211973
-  for (auto net : block_->getNets()) {
-    if (!net->getSigType().isSupply()) {
-      const auto net_rect = net->getTermBBox();
-      processIntersectionSignalNet(net_rect);
+  if (selection.has_value()) {
+    for (auto net : *selection.value()) {
+      processNet(net);
     }
+  } else {
+    for (auto net : block_->getNets()) {
+      processNet(net);
+    }
+  }
+}
+
+void Rudy::processNet(odb::dbNet* net)
+{
+  // refer: https://ieeexplore.ieee.org/document/4211973
+  if (!net->getSigType().isSupply()) {
+    const auto net_rect = net->getTermBBox();
+    processIntersectionSignalNet(net_rect);
   }
 }
 

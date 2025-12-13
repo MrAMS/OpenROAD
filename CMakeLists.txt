@@ -59,7 +59,7 @@ set(OPENROAD_HOME ${PROJECT_SOURCE_DIR})
 set(OPENROAD_SHARE ${CMAKE_INSTALL_PREFIX}/share/openroad)
 
 # Default c++ standard used unless otherwise specified in target_compile_features.
-set(CMAKE_CXX_STANDARD 17 CACHE STRING "the C++ standard to use for this project")
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Disable compiler specific extensions like gnu++11.
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -176,3 +176,8 @@ if(BUILD_MAN)
   install(DIRECTORY ${OPENROAD_HOME}/docs/cat DESTINATION ${OPENROAD_SHARE}/man)
   install(DIRECTORY ${OPENROAD_HOME}/docs/html DESTINATION ${OPENROAD_SHARE}/man)
 endif()
+
+####################################################################
+# Add a configuration for ReleaseWithAsserts
+set(CMAKE_CXX_FLAGS_RELEASEWITHASSERTS "${CMAKE_CXX_FLAGS_RELEASE} -UNDEBUG" CACHE STRING "" FORCE)
+set(CMAKE_C_FLAGS_RELEASEWITHASSERTS "${CMAKE_C_FLAGS_RELEASE} -UNDEBUG" CACHE STRING "" FORCE)

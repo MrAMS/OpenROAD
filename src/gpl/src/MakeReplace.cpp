@@ -3,42 +3,35 @@
 
 #include "gpl/MakeReplace.h"
 
-#include <tcl.h>
-
 #include "gpl/Replace.h"
-#include "ord/OpenRoad.hh"
+#include "graphicsImpl.h"
+#include "graphicsNone.h"
+#include "gui/gui.h"
+#include "tcl.h"
+#include "utl/Logger.h"
 #include "utl/decode.h"
-
-namespace gpl {
-extern const char* gpl_tcl_inits[];
-}
 
 extern "C" {
 extern int Gpl_Init(Tcl_Interp* interp);
 }
 
-namespace ord {
+namespace gpl {
 
-gpl::Replace* makeReplace()
-{
-  return new gpl::Replace();
-}
+extern const char* gpl_tcl_inits[];
 
-void initReplace(OpenRoad* openroad)
+void initReplace(Tcl_Interp* tcl_interp)
 {
-  Tcl_Interp* tcl_interp = openroad->tclInterp();
   Gpl_Init(tcl_interp);
   utl::evalTclInit(tcl_interp, gpl::gpl_tcl_inits);
-  openroad->getReplace()->init(openroad->getDb(),
-                               openroad->getSta(),
-                               openroad->getResizer(),
-                               openroad->getGlobalRouter(),
-                               openroad->getLogger());
 }
 
-void deleteReplace(gpl::Replace* replace)
+void initReplaceGraphics(Replace* replace, utl::Logger* log)
 {
-  delete replace;
+  if (gui::Gui::get() == nullptr) {
+    replace->setGraphicsInterface(gpl::GraphicsNone());
+  } else {
+    replace->setGraphicsInterface(gpl::GraphicsImpl(log));
+  }
 }
 
-}  // namespace ord
+}  // namespace gpl

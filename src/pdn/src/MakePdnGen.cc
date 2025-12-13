@@ -3,45 +3,23 @@
 
 #include "pdn/MakePdnGen.hh"
 
-#include <tcl.h>
-
-#include "domain.h"
-#include "grid.h"
-#include "ord/OpenRoad.hh"
-#include "pdn/PdnGen.hh"
-#include "power_cells.h"
-#include "renderer.h"
+#include "tcl.h"
 #include "utl/decode.h"
-
-namespace pdn {
-extern const char* pdn_tcl_inits[];
 
 extern "C" {
 extern int Pdn_Init(Tcl_Interp* interp);
 }
-}  // namespace pdn
 
-namespace ord {
+namespace pdn {
 
-void initPdnGen(OpenRoad* openroad)
+extern const char* pdn_tcl_inits[];
+
+void initPdnGen(Tcl_Interp* tcl_interp)
 {
-  Tcl_Interp* interp = openroad->tclInterp();
   // Define swig TCL commands.
-  pdn::Pdn_Init(interp);
+  Pdn_Init(tcl_interp);
   // Eval encoded sta TCL sources.
-  utl::evalTclInit(interp, pdn::pdn_tcl_inits);
-
-  openroad->getPdnGen()->init(openroad->getDb(), openroad->getLogger());
+  utl::evalTclInit(tcl_interp, pdn::pdn_tcl_inits);
 }
 
-pdn::PdnGen* makePdnGen()
-{
-  return new pdn::PdnGen();
-}
-
-void deletePdnGen(pdn::PdnGen* pdngen)
-{
-  delete pdngen;
-}
-
-}  // namespace ord
+}  // namespace pdn

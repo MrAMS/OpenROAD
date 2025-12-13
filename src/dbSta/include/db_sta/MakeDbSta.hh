@@ -3,16 +3,10 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace sta {
-class dbSta;
-}
 
-namespace ord {
+void initDbSta(Tcl_Interp* tcl_interp);
 
-class OpenRoad;
-
-sta::dbSta* makeDbSta();
-void deleteDbSta(sta::dbSta* sta);
-void initDbSta(OpenRoad* openroad);
-
-}  // namespace ord
+}  // namespace sta

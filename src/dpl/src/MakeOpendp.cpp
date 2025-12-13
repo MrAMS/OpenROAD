@@ -3,41 +3,24 @@
 
 #include "dpl/MakeOpendp.h"
 
-#include <tcl.h>
-
-#include "dpl/Opendp.h"
-#include "ord/OpenRoad.hh"
+#include "tcl.h"
 #include "utl/decode.h"
-
-namespace dpl {
-// Tcl files encoded into strings.
-extern const char* dpl_tcl_inits[];
-}  // namespace dpl
 
 extern "C" {
 extern int Dpl_Init(Tcl_Interp* interp);
 }
 
-namespace ord {
+namespace dpl {
 
-dpl::Opendp* makeOpendp()
-{
-  return new dpl::Opendp;
-}
+// Tcl files encoded into strings.
+extern const char* dpl_tcl_inits[];
 
-void deleteOpendp(dpl::Opendp* opendp)
+void initOpendp(Tcl_Interp* tcl_interp)
 {
-  delete opendp;
-}
-
-void initOpendp(OpenRoad* openroad)
-{
-  Tcl_Interp* tcl_interp = openroad->tclInterp();
   // Define swig TCL commands.
   Dpl_Init(tcl_interp);
   // Eval encoded sta TCL sources.
   utl::evalTclInit(tcl_interp, dpl::dpl_tcl_inits);
-  openroad->getOpendp()->init(openroad->getDb(), openroad->getLogger());
 }
 
-}  // namespace ord
+}  // namespace dpl

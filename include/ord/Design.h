@@ -47,6 +47,10 @@ namespace dpl {
 class Opendp;
 }
 
+namespace exa {
+class Example;
+}
+
 namespace mpl {
 class MacroPlacer;
 }
@@ -57,6 +61,10 @@ class IOPlacer;
 
 namespace tap {
 class Tapcell;
+}
+
+namespace cgt {
+class ClockGating;
 }
 
 namespace cts {
@@ -122,8 +130,7 @@ class Design
   void readDef(const std::string& file_name,
                bool continue_on_errors = false,
                bool floorplan_init = false,
-               bool incremental = false,
-               bool child = false);
+               bool incremental = false);
   void link(const std::string& design_name);
 
   void readDb(std::istream& stream);
@@ -153,9 +160,11 @@ class Design
 
   // Services
   ant::AntennaChecker* getAntennaChecker();
+  cgt::ClockGating* getClockGating();
   cts::TritonCTS* getTritonCts();
   dft::Dft* getDft();
   dpl::Opendp* getOpendp();
+  exa::Example* getExample();
   drt::TritonRoute* getTritonRoute();
   fin::Finale* getFinale();
   gpl::Replace* getReplace();

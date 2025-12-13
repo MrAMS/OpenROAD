@@ -3,18 +3,10 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace dst {
-class Distributed;
-}
 
-namespace ord {
+void initDistributed(Tcl_Interp* tcl_interp);
 
-class OpenRoad;
-
-dst::Distributed* makeDistributed();
-
-void deleteDistributed(dst::Distributed* dstr);
-
-void initDistributed(OpenRoad* openroad);
-
-}  // namespace ord
+}  // namespace dst

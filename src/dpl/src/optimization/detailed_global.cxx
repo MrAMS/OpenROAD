@@ -4,13 +4,16 @@
 #include "detailed_global.h"
 
 #include <algorithm>
-#include <boost/tokenizer.hpp>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
+#include "boost/tokenizer.hpp"
 #include "detailed_manager.h"
+#include "dpl/Opendp.h"
 #include "infrastructure/Objects.h"
 #include "objective/detailed_hpwl.h"
 #include "utl/Logger.h"
@@ -83,6 +86,9 @@ void DetailedGlobalSwap::run(DetailedMgr* mgrPtr,
 
   curr_hpwl = Utility::hpwl(network_, hpwl_x, hpwl_y);
   init_hpwl = curr_hpwl;
+  if (init_hpwl == 0) {
+    return;
+  }
   for (int p = 1; p <= passes; p++) {
     last_hpwl = curr_hpwl;
 
@@ -100,7 +106,8 @@ void DetailedGlobalSwap::run(DetailedMgr* mgrPtr,
                             p,
                             (double) curr_hpwl);
 
-    if (std::abs(curr_hpwl - last_hpwl) / (double) last_hpwl <= tol) {
+    if (last_hpwl == 0
+        || std::abs(curr_hpwl - last_hpwl) / (double) last_hpwl <= tol) {
       break;
     }
   }
@@ -147,6 +154,7 @@ void DetailedGlobalSwap::globalSwap()
     nextHpwl = currHpwl - delta;  // -delta is +ve is less.
 
     if (nextHpwl <= currHpwl) {
+      hpwlObj.accept();
       mgr_->acceptMove();
       currHpwl = nextHpwl;
     } else {

@@ -4,13 +4,21 @@
 #include "DensityFill.h"
 
 #include <algorithm>
-#include <boost/lexical_cast.hpp>
+#include <array>
+#include <iterator>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
+#include "boost/lexical_cast.hpp"
+#include "boost/polygon/polygon.hpp"
 #include "graphics.h"
+#include "odb/db.h"
 #include "odb/dbShape.h"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
+#include "utl/Logger.h"
 
 namespace fin {
 

@@ -3,18 +3,26 @@
 
 #include "Grid.h"
 
-#include <boost/polygon/polygon.hpp>
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <optional>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "Objects.h"
 #include "Padding.h"
+#include "boost/polygon/polygon.hpp"
 #include "dpl/Opendp.h"
+#include "odb/db.h"
+#include "odb/dbShape.h"
 #include "odb/dbTransform.h"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
+#include "odb/isotropy.h"
 #include "utl/Logger.h"
 
 namespace dpl {
@@ -43,7 +51,7 @@ void Grid::clear()
   row_index_to_y_dbu_.clear();
 }
 
-void Grid::visitDbRows(dbBlock* block,
+void Grid::visitDbRows(odb::dbBlock* block,
                        const std::function<void(dbRow*)>& func) const
 {
   for (auto row : block->getRows()) {
@@ -72,11 +80,15 @@ void Grid::allocateGrid()
       pixel.util = 0.0;
       pixel.is_valid = false;
       pixel.is_hopeless = false;
+      pixel.blocked_layers = 0;
     }
   }
+
+  row_sites_.clear();
+  row_sites_.resize(row_count_.v);
 }
 
-void Grid::markHopeless(dbBlock* block,
+void Grid::markHopeless(odb::dbBlock* block,
                         const int max_displacement_x,
                         const int max_displacement_y)
 {
@@ -87,7 +99,7 @@ void Grid::markHopeless(dbBlock* block,
   gtl::polygon_90_set_data<int> hopeless;
   hopeless += gtl::rectangle_data<int>{0, 0, row_site_count_.v, row_count_.v};
 
-  const Rect core = getCore();
+  const odb::Rect core = getCore();
 
   // Fragmented row support; mark valid sites.
   visitDbRows(block, [&](odb::dbRow* db_row) {
@@ -99,8 +111,9 @@ void Grid::markHopeless(dbBlock* block,
     for (GridX x{x_start}; x < x_end; x++) {
       Pixel* pixel = gridPixel(x, y_row);
       pixel->is_valid = true;
-      pixel->sites[db_row->getSite()] = db_row->getOrient();
     }
+    row_sites_[y_row.v].add(
+        {{x_start.v, x_end.v}, {{db_row->getSite(), db_row->getOrient()}}});
 
     // The safety margin is to avoid having only a very few sites
     // within the diamond search that may still lead to failures.
@@ -124,14 +137,63 @@ void Grid::markHopeless(dbBlock* block,
   }
 }
 
-void Grid::markBlocked(dbBlock* block)
+void Grid::markBlocked(odb::dbBlock* block)
 {
-  const Rect core = getCore();
+  const odb::Rect core = getCore();
+  auto addBlockedLayers
+      = [&](odb::Rect wire_rect, odb::dbTechLayer* tech_layer) {
+          if (tech_layer->getType() != odb::dbTechLayerType::Value::ROUTING) {
+            return;
+          }
+          auto routing_level = tech_layer->getRoutingLevel();
+          if (routing_level <= 1 || routing_level > 3) {  // considering M2, M3
+            return;
+          }
+          if (wire_rect.getDir() == odb::horizontal) {
+            return;
+          }
+          wire_rect.moveDelta(-core.xMin(), -core.yMin());
+          GridRect grid_rect = gridCovering(wire_rect);
+          GridRect core{.xlo = GridX{0},
+                        .ylo = GridY{0},
+                        .xhi = GridX{row_site_count_},
+                        .yhi = GridY{row_count_}};
+          grid_rect = grid_rect.intersect(core);
+          for (GridY y = grid_rect.ylo; y < grid_rect.yhi; y++) {
+            for (GridX x = grid_rect.xlo; x < grid_rect.xhi; x++) {
+              auto pixel1 = gridPixel(x, y);
+              if (pixel1) {
+                pixel1->blocked_layers |= 1 << routing_level;
+              }
+            }
+          }
+        };
+
+  for (auto net : block->getNets()) {
+    if (!net->isSpecial()) {
+      continue;
+    }
+    for (odb::dbSWire* swire : net->getSWires()) {
+      for (odb::dbSBox* sbox : swire->getWires()) {
+        if (sbox->isVia()) {
+          // TODO: handle via
+          continue;
+        }
+        if (sbox->getWireShapeType() == odb::dbWireShapeType::DRCFILL) {
+          // TODO: handle patches
+          continue;
+        }
+        odb::Rect wire_rect = sbox->getBox();
+        odb::dbTechLayer* tech_layer = sbox->getTechLayer();
+        addBlockedLayers(wire_rect, tech_layer);
+      }
+    }
+  }
   for (odb::dbBlockage* blockage : block->getBlockages()) {
     if (blockage->isSoft()) {
       continue;
     }
-    Rect bbox = blockage->getBBox()->getBox();
+    odb::Rect bbox = blockage->getBBox()->getBox();
     bbox.moveDelta(-core.xMin(), -core.yMin());
     GridRect grid_rect = gridCovering(bbox);
 
@@ -151,8 +213,8 @@ void Grid::markBlocked(dbBlock* block)
   }
 }
 
-void Grid::initGrid(dbDatabase* db,
-                    dbBlock* block,
+void Grid::initGrid(odb::dbDatabase* db,
+                    odb::dbBlock* block,
                     std::shared_ptr<Padding> padding,
                     int max_displacement_x,
                     int max_displacement_y)
@@ -164,6 +226,49 @@ void Grid::initGrid(dbDatabase* db,
   markHopeless(block, max_displacement_x, max_displacement_y);
 
   markBlocked(block);
+}
+
+std::pair<odb::dbSite*, odb::dbOrientType> Grid::getShortestSite(GridX grid_x,
+                                                                 GridY grid_y)
+{
+  odb::dbSite* selected_site = nullptr;
+  odb::dbOrientType selected_orient;
+  DbuY min_height{std::numeric_limits<int>::max()};
+
+  const RowSitesMap& sites_map = row_sites_[grid_y.v];
+  auto it = sites_map.find(grid_x.v);
+
+  if (it != sites_map.end()) {
+    for (const auto& [site, orient] : it->second) {
+      DbuY site_height{site->getHeight()};
+      if (site_height < min_height) {
+        min_height = site_height;
+        selected_site = site;
+        selected_orient = orient;
+      }
+    }
+  }
+
+  return {selected_site, selected_orient};
+}
+
+std::optional<odb::dbOrientType>
+Grid::getSiteOrientation(GridX x, GridY y, odb::dbSite* site) const
+{
+  const RowSitesMap& sites_map = row_sites_[y.v];
+  auto interval_it = sites_map.find(x.v);
+
+  if (interval_it == sites_map.end()) {
+    return {};
+  }
+
+  const SiteToOrientation& sites_orient = interval_it->second;
+
+  if (auto it = sites_orient.find(site); it != sites_orient.end()) {
+    return it->second;
+  }
+
+  return {};
 }
 
 Pixel* Grid::gridPixel(GridX grid_x, GridY grid_y) const
@@ -178,19 +283,19 @@ Pixel* Grid::gridPixel(GridX grid_x, GridY grid_y) const
 void Grid::visitCellPixels(
     Node& cell,
     bool padded,
-    const std::function<void(Pixel* pixel)>& visitor) const
+    const std::function<void(Pixel* pixel, bool padded)>& visitor) const
 {
-  dbInst* inst = cell.getDbInst();
+  odb::dbInst* inst = cell.getDbInst();
   auto obstructions = inst->getMaster()->getObstructions();
   bool have_obstructions = false;
-  const Rect core = getCore();
+  const odb::Rect core = getCore();
 
   for (dbBox* obs : obstructions) {
     if (obs->getTechLayer()->getType()
         == odb::dbTechLayerType::Value::OVERLAP) {
       have_obstructions = true;
 
-      Rect rect = obs->getBox();
+      odb::Rect rect = obs->getBox();
       inst->getTransform().apply(rect);
       rect.moveDelta(-core.xMin(), -core.yMin());
       GridRect grid_rect = gridCovering(rect);
@@ -199,21 +304,27 @@ void Grid::visitCellPixels(
         for (GridY y = grid_rect.ylo; y < grid_rect.yhi; y++) {
           Pixel* pixel = gridPixel(x, y);
           if (pixel) {
-            visitor(pixel);
+            visitor(pixel, false);
           }
         }
       }
     }
   }
   if (!have_obstructions) {
-    const auto grid_box
-        = padded ? gridCoveringPadded(&cell) : gridCovering(&cell);
-    for (GridX x{grid_box.xlo}; x < grid_box.xhi; x++) {
+    const auto grid_box = gridCovering(&cell);
+    auto pad_left = padded ? padding_->padLeft(&cell) : GridX{0};
+    auto pad_right = padded ? padding_->padRight(&cell) : GridX{0};
+
+    auto x_start = grid_box.xlo - pad_left;
+    auto x_end = grid_box.xhi + pad_right;
+    for (GridX x{x_start}; x < x_end; x++) {
       for (GridY y{grid_box.ylo}; y < grid_box.yhi; y++) {
         Pixel* pixel = gridPixel(x, y);
-        if (pixel) {
-          visitor(pixel);
+        if (pixel == nullptr) {
+          continue;
         }
+        const bool within_cell = x >= grid_box.xlo && x < grid_box.xhi;
+        visitor(pixel, !within_cell);
       }
     }
   }
@@ -225,7 +336,7 @@ void Grid::visitCellBoundaryPixels(
         void(Pixel* pixel, odb::Direction2D edge, GridX x, GridY y)>& visitor)
     const
 {
-  dbInst* inst = cell.getDbInst();
+  odb::dbInst* inst = cell.getDbInst();
 
   auto visit = [&visitor, this](const GridX x_start,
                                 const GridX x_end,
@@ -253,16 +364,16 @@ void Grid::visitCellBoundaryPixels(
     }
   };
 
-  dbMaster* master = inst->getMaster();
+  odb::dbMaster* master = inst->getMaster();
   auto obstructions = master->getObstructions();
   bool have_obstructions = false;
-  const Rect core = getCore();
+  const odb::Rect core = getCore();
   for (dbBox* obs : obstructions) {
     if (obs->getTechLayer()->getType()
         == odb::dbTechLayerType::Value::OVERLAP) {
       have_obstructions = true;
 
-      Rect rect = obs->getBox();
+      odb::Rect rect = obs->getBox();
       inst->getTransform().apply(rect);
       rect.moveDelta(-core.xMin(), -core.yMin());
 
@@ -286,34 +397,47 @@ void Grid::visitCellBoundaryPixels(
   }
 }
 
+void Grid::paintPixel(Node* cell)
+{
+  paintPixel(cell, gridX(cell), gridSnapDownY(cell));
+}
+
 void Grid::erasePixel(Node* cell)
 {
-  if (!(cell->isFixed() || !cell->isPlaced())) {
-    const auto grid_rect = gridCoveringPadded(cell);
-    debugPrint(logger_,
-               DPL,
-               "hybrid",
-               1,
-               "Checking cell {} isHybrid {}",
-               cell->getDbInst()->getName(),
-               cell->isHybrid());
-    debugPrint(logger_,
-               DPL,
-               "hybrid",
-               1,
-               "Checking cell {} in rows. Y start {} y end {}",
-               cell->getDbInst()->getName(),
-               grid_rect.ylo,
-               grid_rect.yhi);
+  const auto grid_rect = gridCoveringPadded(cell);
+  debugPrint(logger_,
+             DPL,
+             "hybrid",
+             1,
+             "Checking cell {} isHybrid {}",
+             cell->getDbInst()->getName(),
+             cell->isHybrid());
+  debugPrint(logger_,
+             DPL,
+             "hybrid",
+             1,
+             "Checking cell {} in rows. Y start {} y end {}",
+             cell->getDbInst()->getName(),
+             grid_rect.ylo,
+             grid_rect.yhi);
 
-    for (GridX x = grid_rect.xlo; x < grid_rect.xhi; x++) {
-      for (GridY y = grid_rect.ylo; y < grid_rect.yhi; y++) {
-        Pixel* pixel = gridPixel(x, y);
-        if (pixel == nullptr || pixel->cell != cell) {
-          continue;
-        }
+  // Clear cell occupancy and padding reservations for this cell
+  for (GridX x = grid_rect.xlo; x < grid_rect.xhi; x++) {
+    for (GridY y = grid_rect.ylo; y < grid_rect.yhi; y++) {
+      Pixel* pixel = gridPixel(x, y);
+      if (pixel == nullptr) {
+        continue;
+      }
+
+      // Clear cell occupancy
+      if (pixel->cell == cell) {
         pixel->cell = nullptr;
         pixel->util = 0;
+      }
+
+      // Clear padding reservations made by this cell
+      if (pixel->padding_reserved_by == cell) {
+        pixel->padding_reserved_by = nullptr;
       }
     }
   }
@@ -321,16 +445,62 @@ void Grid::erasePixel(Node* cell)
 
 void Grid::paintPixel(Node* cell, GridX grid_x, GridY grid_y)
 {
-  // assert(!cell->isPlaced());
-  GridX x_end = grid_x + gridPaddedWidth(cell);
-  GridY grid_height = gridHeight(cell);
-  GridY y_end = grid_y + grid_height;
+  // Paint the actual cell footprint (not including padding)
+  GridX cell_x_end = grid_x + gridWidth(cell);
+  GridY cell_y_end = gridEndY(gridYToDbu(grid_y) + cell->getHeight());
 
-  for (GridX x{grid_x}; x < x_end; x++) {
-    for (GridY y{grid_y}; y < y_end; y++) {
+  // Mark actual cell pixels
+  for (GridX x{grid_x}; x < cell_x_end; x++) {
+    for (GridY y{grid_y}; y < cell_y_end; y++) {
       Pixel* pixel = gridPixel(x, y);
+      if (pixel == nullptr) {
+        continue;
+      }
       pixel->cell = cell;
       pixel->util = 1.0;
+    }
+  }
+
+  // Mark spacing reservations around the cell
+  paintCellPadding(cell, grid_x, grid_y, cell_x_end, cell_y_end);
+}
+void Grid::paintCellPadding(Node* cell)
+{
+  auto grid_x_begin = gridX(cell);
+  auto grid_y_begin = gridSnapDownY(cell);
+  auto grid_x_end = grid_x_begin + gridWidth(cell);
+  auto grid_y_end = gridEndY(gridYToDbu(grid_y_begin) + cell->getHeight());
+
+  paintCellPadding(cell, grid_x_begin, grid_y_begin, grid_x_end, grid_y_end);
+}
+void Grid::paintCellPadding(Node* cell,
+                            const GridX grid_x_begin,
+                            const GridY grid_y_begin,
+                            const GridX grid_x_end,
+                            const GridY grid_y_end)
+{
+  GridX left_pad = padding_->padLeft(cell);
+  GridX right_pad = padding_->padRight(cell);
+
+  // Reserve left spacing pixels
+  for (GridX x{grid_x_begin - left_pad}; x < grid_x_begin; x++) {
+    for (GridY y{grid_y_begin}; y < grid_y_end; y++) {
+      Pixel* pixel = gridPixel(x, y);
+      if (pixel == nullptr) {
+        continue;
+      }
+      pixel->padding_reserved_by = cell;
+    }
+  }
+
+  // Reserve right spacing pixels
+  for (GridX x{grid_x_end}; x < grid_x_end + right_pad; x++) {
+    for (GridY y{grid_y_begin}; y < grid_y_end; y++) {
+      Pixel* pixel = gridPixel(x, y);
+      if (pixel == nullptr) {
+        continue;
+      }
+      pixel->padding_reserved_by = cell;
     }
   }
 }
@@ -340,9 +510,14 @@ GridX Grid::gridPaddedWidth(const Node* cell) const
   return GridX{divCeil(padding_->paddedWidth(cell).v, getSiteWidth().v)};
 }
 
+GridX Grid::gridWidth(const Node* cell) const
+{
+  return GridX{divCeil(cell->getWidth().v, getSiteWidth().v)};
+}
+
 GridY Grid::gridHeight(odb::dbMaster* master) const
 {
-  Rect bbox;
+  odb::Rect bbox;
   master->getPlacementBoundary(bbox);
   if (uniform_row_height_) {
     DbuY row_height = uniform_row_height_.value();
@@ -399,7 +574,7 @@ GridY Grid::getRowCount(DbuY row_height) const
   return GridY{divFloor(core_.dy(), row_height.v)};
 }
 
-GridRect Grid::gridCovering(const Rect& rect) const
+GridRect Grid::gridCovering(const odb::Rect& rect) const
 {
   return {.xlo = gridX(DbuX{rect.xMin()}),
           .ylo = gridSnapDownY(DbuY{rect.yMin()}),
@@ -508,15 +683,15 @@ bool Grid::cellFitsInCore(Node* cell) const
          && cell->getHeight().v <= core_.dy();
 }
 
-void Grid::examineRows(dbBlock* block)
+void Grid::examineRows(odb::dbBlock* block)
 {
   block_ = block;
   has_hybrid_rows_ = false;
   bool has_non_hybrid_rows = false;
-  dbSite* first_site = nullptr;
+  odb::dbSite* first_site = nullptr;
 
   visitDbRows(block, [&](odb::dbRow* row) {
-    dbSite* site = row->getSite();
+    odb::dbSite* site = row->getSite();
     if (site->isHybrid()) {
       has_hybrid_rows_ = true;
     } else {
@@ -547,11 +722,6 @@ void Grid::examineRows(dbBlock* block)
     logger_->error(DPL, 12, "no rows found.");
   }
 
-  if (hasHybridRows() && has_non_hybrid_rows) {
-    logger_->error(
-        DPL, 49, "Mixing hybrid and non-hybrid rows is unsupported.");
-  }
-
   GridY index{0};
   DbuY prev_y{0};
   for (auto& [dbu_y, grid_y] : row_y_dbu_to_index_) {
@@ -560,15 +730,30 @@ void Grid::examineRows(dbBlock* block)
     row_index_to_pixel_height_.push_back(dbu_y - prev_y);
     prev_y = dbu_y;
   }
-
-  if (!hasHybridRows()) {
-    uniform_row_height_ = DbuY{std::numeric_limits<int>::max()};
-    visitDbRows(block, [&](odb::dbRow* db_row) {
-      const int site_height = db_row->getSite()->getHeight();
-      uniform_row_height_
-          = std::min(uniform_row_height_.value(), DbuY{site_height});
-    });
-  }
+  uniform_row_height_.reset();
+  bool is_uniform = true;
+  visitDbRows(block, [&](odb::dbRow* db_row) {
+    if (!is_uniform) {
+      return;
+    }
+    const int site_height = db_row->getSite()->getHeight();
+    if (uniform_row_height_.has_value()) {
+      // check if the bigger of both; the new and old heights, is a multiple of
+      // the smaller
+      const auto smaller = std::min(site_height, uniform_row_height_.value().v);
+      const auto larger = std::max(site_height, uniform_row_height_.value().v);
+      if (larger % smaller != 0) {
+        // not uniform
+        uniform_row_height_.reset();
+        is_uniform = false;
+      } else {
+        // uniform
+        uniform_row_height_ = DbuY{smaller};
+      }
+    } else {
+      uniform_row_height_ = DbuY{site_height};
+    }
+  });
   row_site_count_ = GridX{divFloor(getCore().dx(), getSiteWidth().v)};
   row_count_ = GridY{static_cast<int>(row_y_dbu_to_index_.size() - 1)};
 }
@@ -582,10 +767,10 @@ std::unordered_set<int> Grid::getRowCoordinates() const
   return coords;
 }
 
-bool Grid::isMultiHeight(dbMaster* master) const
+bool Grid::isMultiHeight(odb::dbMaster* master) const
 {
   if (uniform_row_height_) {
-    return master->getHeight() != uniform_row_height_.value();
+    return master->getHeight() > uniform_row_height_.value();
   }
 
   return master->getSite()->hasRowPattern();

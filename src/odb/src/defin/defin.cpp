@@ -3,6 +3,7 @@
 
 #include "odb/defin.h"
 
+#include <mutex>
 #include <vector>
 
 #include "definReader.h"
@@ -11,89 +12,65 @@
 namespace odb {
 
 // Protects the DefParser namespace that has static variables
-std::mutex defin::_def_mutex;
+std::mutex defin::def_mutex_;
 
 defin::defin(dbDatabase* db, utl::Logger* logger, MODE mode)
 {
-  _reader = new definReader(db, logger, mode);
+  reader_ = new definReader(db, logger, mode);
 }
 
 defin::~defin()
 {
-  delete _reader;
+  delete reader_;
 }
 
 void defin::skipConnections()
 {
-  _reader->skipConnections();
+  reader_->skipConnections();
 }
 
 void defin::skipWires()
 {
-  _reader->skipWires();
+  reader_->skipWires();
 }
 
 void defin::skipSpecialWires()
 {
-  _reader->skipSpecialWires();
+  reader_->skipSpecialWires();
 }
 
 void defin::skipShields()
 {
-  _reader->skipShields();
+  reader_->skipShields();
 }
 
 void defin::skipBlockWires()
 {
-  _reader->skipBlockWires();
+  reader_->skipBlockWires();
 }
 
 void defin::skipFillWires()
 {
-  _reader->skipFillWires();
+  reader_->skipFillWires();
 }
 
 void defin::continueOnErrors()
 {
-  _reader->continueOnErrors();
-}
-
-void defin::namesAreDBIDs()
-{
-  _reader->namesAreDBIDs();
-}
-
-void defin::setAssemblyMode()
-{
-  _reader->setAssemblyMode();
+  reader_->continueOnErrors();
 }
 
 void defin::useBlockName(const char* name)
 {
-  _reader->useBlockName(name);
+  reader_->useBlockName(name);
 }
 
-dbChip* defin::createChip(std::vector<dbLib*>& libs,
-                          const char* def_file,
-                          dbTech* tech)
+void defin::readChip(std::vector<dbLib*>& libs,
+                     const char* def_file,
+                     dbChip* chip,
+                     const bool issue_callback)
 {
-  std::lock_guard<std::mutex> lock(_def_mutex);
-  return _reader->createChip(libs, def_file, tech);
-}
-
-dbBlock* defin::createBlock(dbBlock* parent,
-                            std::vector<dbLib*>& libs,
-                            const char* def_file,
-                            dbTech* tech)
-{
-  std::lock_guard<std::mutex> lock(_def_mutex);
-  return _reader->createBlock(parent, libs, def_file, tech);
-}
-
-bool defin::replaceWires(dbBlock* block, const char* def_file)
-{
-  std::lock_guard<std::mutex> lock(_def_mutex);
-  return _reader->replaceWires(block, def_file);
+  std::lock_guard<std::mutex> lock(def_mutex_);
+  reader_->readChip(libs, def_file, chip, issue_callback);
 }
 
 }  // namespace odb

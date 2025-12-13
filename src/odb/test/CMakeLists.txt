@@ -2,9 +2,14 @@ or_integration_tests(
   "odb"
   TESTS
     abstract_origin
+    all_pins_placed1
+    all_pins_placed2
     bterm_hier_create
     check_routing_tracks
+    create_blockage
+    create_obstruction
     create_sboxes
+    def_dup_net
     def_parser
     design_is_routed1
     design_is_routed2
@@ -19,6 +24,7 @@ or_integration_tests(
     edit_via_params
     floorplan_initialize
     floorplan_initialize2
+    floorplan_initialize3
     gcd_abstract_lef
     gcd_abstract_lef_with_power
     gcd_def_access
@@ -30,6 +36,8 @@ or_integration_tests(
     ndr
     polygon
     read_abstract_lef
+    read_3dbv
+    read_3dbx
     read_db
     read_def
     read_def58
@@ -39,13 +47,20 @@ or_integration_tests(
     replace_hier_mod2
     replace_hier_mod3
     replace_hier_mod4
+    replace_hier_mod5
+    replace_hier_mod6
+    replace_hier_mod_report_checks
     rounding
     row_settings
     sky130hd_multi_patterned
     smash_vias
     transform
     wire_encoder
+    write_cdl
+    write_3dbv
+    write_3dbx
     write_def58
+    write_def58_gzip
     write_lef_and_def
     write_lef_polygon
     write_macro_placement

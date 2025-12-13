@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2022-2025, The OpenROAD Authors
+
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//test:regression.bzl", "regression_test")
+
+package(features = ["layering_check"])
 
 # From CMakeLists.txt or_integration_tests(TESTS
 COMPULSORY_TESTS = [
@@ -46,14 +50,13 @@ filegroup(
         "tee_6.rptok",
         "tee_7.rptok",
         "tee_8.rptok",
-        "utl_unit_test.tcl",
     ],
 )
 
 [
     filegroup(
         name = test_name + "_resources",
-        data = [":regression_resources"] + glob(
+        srcs = [":regression_resources"] + glob(
             [
                 test_name + ".*",
             ],
@@ -71,3 +74,37 @@ filegroup(
     )
     for test_name in ALL_TESTS
 ]
+
+cc_test(
+    name = "utl_cfile_unittest",
+    srcs = ["cpp/TestCFileUtils.cpp"],
+    deps = [
+        "//src/utl",
+        "@boost.asio",
+        "@boost.beast",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "TestMetrics",
+    srcs = [
+        "cpp/TestMetrics.cpp",
+    ],
+    deps = [
+        "//src/utl",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "TestSuppressStdout",
+    srcs = ["cpp/TestSuppressStdout.cpp"],
+    deps = [
+        "//src/utl",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)

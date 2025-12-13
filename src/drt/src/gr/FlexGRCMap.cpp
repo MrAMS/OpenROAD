@@ -1,22 +1,29 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2019-2025, The OpenROAD Authors
 
-#include "FlexGRCMap.h"
+#include "gr/FlexGRCMap.h"
 
 #include <algorithm>
 #include <fstream>
 #include <iostream>
-#include <iterator>
 #include <memory>
 #include <set>
 #include <vector>
+
+#include "db/obj/frBTerm.h"
+#include "db/obj/frBlockObject.h"
+#include "frBaseTypes.h"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
+
+using odb::dbTechLayerType;
 
 namespace drt {
 
 void FlexGRCMap::initFrom3D(FlexGRCMap* cmap3D)
 {
   // fake zMap
-  zMap_[0] = dbTechLayerDir::NONE;
+  zMap_[0] = odb::dbTechLayerDir::NONE;
 
   // resize cmap
   unsigned size = xgp_->getCount() * ygp_->getCount();
@@ -25,7 +32,7 @@ void FlexGRCMap::initFrom3D(FlexGRCMap* cmap3D)
   // init supply / demand (from 3D cmap)
   unsigned zIdx = 0;
   for (auto& [layerIdx, dir] : cmap3D->getZMap()) {
-    if (dir == dbTechLayerDir::HORIZONTAL) {
+    if (dir == odb::dbTechLayerDir::HORIZONTAL) {
       for (unsigned yIdx = 0; yIdx < ygp_->getCount(); yIdx++) {
         // non-transition via layer
         for (unsigned xIdx = 0; xIdx < xgp_->getCount(); xIdx++) {
@@ -43,7 +50,7 @@ void FlexGRCMap::initFrom3D(FlexGRCMap* cmap3D)
           }
         }
       }
-    } else if (dir == dbTechLayerDir::VERTICAL) {
+    } else if (dir == odb::dbTechLayerDir::VERTICAL) {
       for (unsigned xIdx = 0; xIdx < xgp_->getCount(); xIdx++) {
         for (unsigned yIdx = 0; yIdx < ygp_->getCount(); yIdx++) {
           // supply
@@ -105,10 +112,10 @@ void FlexGRCMap::init()
   // init supply (only for pref routing direction)
   unsigned cmapLayerIdx = 0;
   for (auto& [layerIdx, dir] : zMap_) {
-    if (dir == dbTechLayerDir::HORIZONTAL) {
+    if (dir == odb::dbTechLayerDir::HORIZONTAL) {
       for (unsigned yIdx = 0; yIdx < ygp_->getCount(); yIdx++) {
-        Rect startGCellBox
-            = design_->getTopBlock()->getGCellBox(Point(0, yIdx));
+        odb::Rect startGCellBox
+            = design_->getTopBlock()->getGCellBox(odb::Point(0, yIdx));
         frCoord low = startGCellBox.yMin();
         frCoord high = startGCellBox.yMax();
         // non-transition via layer
@@ -133,10 +140,10 @@ void FlexGRCMap::init()
           }
         }
       }
-    } else if (dir == dbTechLayerDir::VERTICAL) {
+    } else if (dir == odb::dbTechLayerDir::VERTICAL) {
       for (unsigned xIdx = 0; xIdx < xgp_->getCount(); xIdx++) {
-        Rect startGCellBox
-            = design_->getTopBlock()->getGCellBox(Point(xIdx, 0));
+        odb::Rect startGCellBox
+            = design_->getTopBlock()->getGCellBox(odb::Point(xIdx, 0));
         frCoord low = startGCellBox.xMin();
         frCoord high = startGCellBox.xMax();
         if (layerTrackPitches_[cmapLayerIdx] == layerPitches_[cmapLayerIdx]) {
@@ -176,11 +183,11 @@ void FlexGRCMap::init()
   // layerIdx == tech layer num
   for (auto& [layerIdx, dir] : zMap_) {
     frCoord width = design_->getTech()->getLayer(layerIdx)->getWidth();
-    if (dir == dbTechLayerDir::HORIZONTAL) {
+    if (dir == odb::dbTechLayerDir::HORIZONTAL) {
       for (unsigned yIdx = 0; yIdx < ygp_->getCount(); yIdx++) {
         trackLocs.clear();
-        Rect startGCellBox
-            = design_->getTopBlock()->getGCellBox(Point(0, yIdx));
+        odb::Rect startGCellBox
+            = design_->getTopBlock()->getGCellBox(odb::Point(0, yIdx));
         frCoord low = startGCellBox.yMin();
         frCoord high = startGCellBox.yMax();
         getTrackLocs(design_->getTopBlock()->getTrackPatterns(layerIdx),
@@ -193,8 +200,8 @@ void FlexGRCMap::init()
           // add initial demand
           // addRawDemand(xIdx, yIdx, cmapLayerIdx, frDirEnum::E, 1);
           // add blocked track demand
-          Rect currGCellBox
-              = design_->getTopBlock()->getGCellBox(Point(xIdx, yIdx));
+          odb::Rect currGCellBox
+              = design_->getTopBlock()->getGCellBox(odb::Point(xIdx, yIdx));
           queryResult.clear();
           regionQuery->query(currGCellBox, layerIdx, queryResult);
           numBlkTracks
@@ -203,11 +210,11 @@ void FlexGRCMap::init()
           addDemand(xIdx, yIdx, cmapLayerIdx, frDirEnum::E, numBlkTracks);
         }
       }
-    } else if (dir == dbTechLayerDir::VERTICAL) {
+    } else if (dir == odb::dbTechLayerDir::VERTICAL) {
       for (unsigned xIdx = 0; xIdx < xgp_->getCount(); xIdx++) {
         trackLocs.clear();
-        Rect startGCellBox
-            = design_->getTopBlock()->getGCellBox(Point(xIdx, 0));
+        odb::Rect startGCellBox
+            = design_->getTopBlock()->getGCellBox(odb::Point(xIdx, 0));
         frCoord low = startGCellBox.xMin();
         frCoord high = startGCellBox.xMax();
         getTrackLocs(design_->getTopBlock()->getTrackPatterns(layerIdx),
@@ -220,8 +227,8 @@ void FlexGRCMap::init()
           // add initial demand
           // addRawDemand(xIdx, yIdx, cmapLayerIdx, frDirEnum::N, 1);
           // add blocked track demand
-          Rect currGCellBox
-              = design_->getTopBlock()->getGCellBox(Point(xIdx, yIdx));
+          odb::Rect currGCellBox
+              = design_->getTopBlock()->getGCellBox(odb::Point(xIdx, yIdx));
           queryResult.clear();
           regionQuery->query(currGCellBox, layerIdx, queryResult);
           numBlkTracks
@@ -239,11 +246,11 @@ void FlexGRCMap::init()
   std::vector<rq_box_value_t<frRPin*>> rpinQueryResult;
   // layerIdx == tech layer num
   for (auto& [layerIdx, dir] : zMap_) {
-    if (dir == dbTechLayerDir::HORIZONTAL) {
+    if (dir == odb::dbTechLayerDir::HORIZONTAL) {
       for (unsigned yIdx = 0; yIdx < ygp_->getCount(); yIdx++) {
         for (unsigned xIdx = 0; xIdx < xgp_->getCount(); xIdx++) {
-          Rect currGCellBox
-              = design_->getTopBlock()->getGCellBox(Point(xIdx, yIdx));
+          odb::Rect currGCellBox
+              = design_->getTopBlock()->getGCellBox(odb::Point(xIdx, yIdx));
           rpinQueryResult.clear();
           regionQuery->queryRPin(currGCellBox, layerIdx, rpinQueryResult);
 
@@ -256,11 +263,11 @@ void FlexGRCMap::init()
           }
         }
       }
-    } else if (dir == dbTechLayerDir::VERTICAL) {
+    } else if (dir == odb::dbTechLayerDir::VERTICAL) {
       for (unsigned xIdx = 0; xIdx < xgp_->getCount(); xIdx++) {
         for (unsigned yIdx = 0; yIdx < ygp_->getCount(); yIdx++) {
-          Rect currGCellBox
-              = design_->getTopBlock()->getGCellBox(Point(xIdx, yIdx));
+          odb::Rect currGCellBox
+              = design_->getTopBlock()->getGCellBox(odb::Point(xIdx, yIdx));
           rpinQueryResult.clear();
           regionQuery->queryRPin(currGCellBox, layerIdx, rpinQueryResult);
 
@@ -280,7 +287,7 @@ void FlexGRCMap::init()
   // update blocked track
   cmapLayerIdx = 0;
   for (auto& [layerIdx, dir] : zMap_) {
-    if (dir == dbTechLayerDir::HORIZONTAL) {
+    if (dir == odb::dbTechLayerDir::HORIZONTAL) {
       for (unsigned yIdx = 0; yIdx < ygp_->getCount(); yIdx++) {
         for (unsigned xIdx = 0; xIdx < xgp_->getCount(); xIdx++) {
           if (getRawDemand(xIdx, yIdx, cmapLayerIdx, frDirEnum::E)
@@ -289,7 +296,7 @@ void FlexGRCMap::init()
           }
         }
       }
-    } else if (dir == dbTechLayerDir::VERTICAL) {
+    } else if (dir == odb::dbTechLayerDir::VERTICAL) {
       for (unsigned xIdx = 0; xIdx < xgp_->getCount(); xIdx++) {
         for (unsigned yIdx = 0; yIdx < ygp_->getCount(); yIdx++) {
           if (getRawDemand(xIdx, yIdx, cmapLayerIdx, frDirEnum::N)
@@ -318,14 +325,15 @@ unsigned FlexGRCMap::getNumBlkTracks(
   for (auto& [box, obj] : results) {
     actBloatDist = bloatDist;
     if (obj->typeId() == frcInstTerm) {
-      dbSigType sigType = static_cast<frInstTerm*>(obj)->getTerm()->getType();
+      odb::dbSigType sigType
+          = static_cast<frInstTerm*>(obj)->getTerm()->getType();
       if (sigType.isSupply()) {
         actBloatDist = calcBloatDist(obj, lNum, box, false);
       }
     }
     if (obj->typeId() == frcBlockage || obj->typeId() == frcInstBlockage) {
       auto inst = (static_cast<frInstBlockage*>(obj))->getInst();
-      if (inst->getMaster()->getMasterType() == dbMasterType::BLOCK) {
+      if (inst->getMaster()->getMasterType() == odb::dbMasterType::BLOCK) {
         // actBloatDist = calcBloatDist(obj, lNum, boostB);
         // currently hack to prevent via EOL violation from above / below layer
         // (see TA prevention for prl)
@@ -354,7 +362,7 @@ unsigned FlexGRCMap::getNumBlkTracks(
 
 frCoord FlexGRCMap::calcBloatDist(frBlockObject* obj,
                                   const frLayerNum lNum,
-                                  const Rect& box,
+                                  const odb::Rect& box,
                                   bool isOBS)
 {
   auto layer = getDesign()->getTech()->getLayer(lNum);
@@ -362,7 +370,7 @@ frCoord FlexGRCMap::calcBloatDist(frBlockObject* obj,
   // use width if minSpc does not exist
   frCoord bloatDist = width;
   frCoord objWidth = std::min(box.xMax() - box.xMin(), box.yMax() - box.yMin());
-  frCoord prl = (layer->getDir() == dbTechLayerDir::HORIZONTAL)
+  frCoord prl = (layer->getDir() == odb::dbTechLayerDir::HORIZONTAL)
                     ? (box.xMax() - box.xMin())
                     : (box.yMax() - box.yMin());
   if (obj->typeId() == frcBlockage || obj->typeId() == frcInstBlockage) {
@@ -524,9 +532,9 @@ void FlexGRCMap::printLayers()
 
   for (auto& [layerNum, dir] : zMap_) {
     std::cout << "  layerNum = " << layerNum << " dir = ";
-    if (dir == dbTechLayerDir::HORIZONTAL) {
+    if (dir == odb::dbTechLayerDir::HORIZONTAL) {
       std::cout << "H";
-    } else if (dir == dbTechLayerDir::VERTICAL) {
+    } else if (dir == odb::dbTechLayerDir::VERTICAL) {
       std::cout << "V";
     }
     std::cout << std::endl;
@@ -561,7 +569,8 @@ void FlexGRCMap::print(bool isAll)
     }
     for (unsigned yIdx = 0; yIdx < ygp_->getCount(); yIdx++) {
       for (unsigned xIdx = 0; xIdx < xgp_->getCount(); xIdx++) {
-        Rect gcellBox = design_->getTopBlock()->getGCellBox(Point(xIdx, yIdx));
+        odb::Rect gcellBox
+            = design_->getTopBlock()->getGCellBox(odb::Point(xIdx, yIdx));
         unsigned demandV = getDemand(xIdx, yIdx, layerIdx, frDirEnum::N);
         unsigned demandH = getDemand(xIdx, yIdx, layerIdx, frDirEnum::E);
         unsigned supplyV = getSupply(xIdx, yIdx, layerIdx, frDirEnum::N);
@@ -617,7 +626,8 @@ void FlexGRCMap::print2D(bool isAll)
         supplyV += getSupply(xIdx, yIdx, layerIdx, frDirEnum::N);
       }
 
-      Rect gcellBox = design_->getTopBlock()->getGCellBox(Point(xIdx, yIdx));
+      odb::Rect gcellBox
+          = design_->getTopBlock()->getGCellBox(odb::Point(xIdx, yIdx));
       if (isAll || (demandV > supplyV) || (demandH > supplyH)) {
         if (congMap.is_open()) {
           congMap << "(" << gcellBox.xMin() << ", " << gcellBox.yMin() << ") ("

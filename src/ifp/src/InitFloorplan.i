@@ -54,6 +54,32 @@ static utl::Logger* getLogger() {
   }
 }
 
+// Typemap to convert TCL list of coordinates to std::vector<odb::Point>
+%typemap(in) std::vector<odb::Point>& (std::vector<odb::Point> temp_vector) {
+  Tcl_Obj **listobjv;
+  int nitems;
+  
+  if (Tcl_ListObjGetElements(interp, $input, &nitems, &listobjv) == TCL_ERROR) {
+    return TCL_ERROR;
+  }
+  
+  temp_vector.clear();
+  temp_vector.reserve(nitems / 2);
+  
+  for (int i = 0; i < nitems; i += 2) {
+    double x, y;
+    if (Tcl_GetDoubleFromObj(interp, listobjv[i], &x) != TCL_OK) {
+      return TCL_ERROR;
+    }
+    if (Tcl_GetDoubleFromObj(interp, listobjv[i+1], &y) != TCL_OK) {
+      return TCL_ERROR;
+    }
+    temp_vector.emplace_back(static_cast<int>(x), static_cast<int>(y));
+  }
+  
+  $1 = &temp_vector;
+}
+
 %inline %{
 
 namespace ifp {
@@ -105,7 +131,8 @@ make_rows_with_spacing(ord::Design* design,
           odb::dbSite* site,
           const std::vector<odb::dbSite*>& additional_sites,
           ifp::RowParity row_parity,
-          const std::vector<odb::dbSite*>& flipped_sites)
+          const std::vector<odb::dbSite*>& flipped_sites,
+          const int gap)
 {
   std::set<odb::dbSite*> flipped_sites_set(flipped_sites.begin(),
                                            flipped_sites.end());
@@ -114,7 +141,8 @@ make_rows_with_spacing(ord::Design* design,
                                              site,
                                              additional_sites,
                                              row_parity,
-                                             flipped_sites_set);
+                                             flipped_sites_set,
+                                             gap);
 }
 
 void
@@ -126,7 +154,8 @@ make_rows(ord::Design* design,
           odb::dbSite* site,
           const std::vector<odb::dbSite*>& additional_sites,
           ifp::RowParity row_parity,
-          const std::vector<odb::dbSite*>& flipped_sites)
+          const std::vector<odb::dbSite*>& flipped_sites,
+          const int gap)
 {
   
   std::set<odb::dbSite*> flipped_sites_set(flipped_sites.begin(),
@@ -135,7 +164,8 @@ make_rows(ord::Design* design,
                                   site,
                                   additional_sites,
                                   row_parity,
-                                  flipped_sites_set);
+                                  flipped_sites_set,
+                                  gap);
 }
 
 void
@@ -158,6 +188,27 @@ odb::dbSite* find_site(ord::Design* design,
     getLogger()->error(utl::IFP, 18, "Unable to find site: {}", site_name);
   }
   return site;
+}
+
+void make_polygon_die(ord::Design* design, std::vector<odb::Point>& points)
+{
+  odb::Polygon polygon(points);
+  design->getFloorplan().makePolygonDie(polygon);
+}
+
+
+void make_polygon_rows_simple(ord::Design* design, 
+                              std::vector<odb::Point>& core_polygon,
+                              odb::dbSite* base_site,
+                              const std::vector<odb::dbSite*>& additional_sites,
+                              ifp::RowParity row_parity,
+                              const std::vector<odb::dbSite*>& flipped_sites,
+                              const int gap)
+{
+  odb::Polygon polygon(core_polygon);
+  std::set<odb::dbSite*> flipped_sites_set(flipped_sites.begin(),
+                                           flipped_sites.end());
+  design->getFloorplan().makePolygonRows(polygon, base_site, additional_sites, row_parity, flipped_sites_set, gap);
 }
 
 } // namespace

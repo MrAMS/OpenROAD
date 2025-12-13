@@ -2,6 +2,8 @@
 # Copyright (c) 2022-2025, The OpenROAD Authors
 load("//test:regression.bzl", "regression_test")
 
+package(features = ["layering_check"])
+
 # From CMakeLists.txt or_integration_tests(TESTS
 COMPULSORY_TESTS = [
     "add_constraint1",
@@ -22,6 +24,7 @@ COMPULSORY_TESTS = [
     "add_constraint16",
     "add_constraint17",
     "add_constraint18",
+    "add_constraint19",
     "add_constraint_debug",
     "add_constraint_error1",
     "add_constraint_error2",
@@ -32,6 +35,7 @@ COMPULSORY_TESTS = [
     "add_constraint_error7",
     "add_constraint_error8",
     "add_constraint_error9",
+    "add_constraint_error10",
     "annealing1",
     "annealing2",
     "annealing3",
@@ -78,7 +82,6 @@ COMPULSORY_TESTS = [
     "large_groups3",
     "large_groups4",
     "macro_not_placed",
-    "macro_not_placed_random",
     "min_dist_in_tracks1",
     "min_dist_in_tracks2",
     "multiple_calls",
@@ -108,15 +111,8 @@ COMPULSORY_TESTS = [
     "place_pin_error1",
     "place_pin_error2",
     "place_pin_error3",
-    "random1",
-    "random2",
-    "random3",
-    "random4",
-    "random5",
-    "random6",
-    "random7",
-    "random8",
-    "random9",
+    "random_deprecated1",
+    "random_deprecated2",
     "top_layer1",
     "top_layer2",
     "top_layer3",
@@ -156,22 +152,18 @@ filegroup(
 [
     filegroup(
         name = test_name + "_resources",
-        data = [":regression_resources"] + glob(
+        srcs = [":regression_resources"] + glob(
             [
                 test_name + ".*",
             ],
         ) + {
-            "gcd": [],
             "blocked_region": [],
-            "large_groups1": [],
+            "gcd": [],
             "group_pins3": [],
+            "large_groups1": [],
             "multi_track_pattern1": ["multi_track_pattern2.lef"],
             "multi_track_pattern2": ["multi_track_pattern1.lef"],
             "pin_length_error": ["on_grid.def"],
-            "macro_not_placed_random": [
-                "macro_not_placed.def",
-                "blocked_region.lef",
-            ],
             "write_pin_placement6": ["write_pin_placement5.def"],
         }.get(
             test_name,

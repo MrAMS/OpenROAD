@@ -5,47 +5,28 @@
 
 #include <vector>
 
-#include "abc_library_factory.h"
+#include "cut/abc_library_factory.h"
+#include "cut/logic_cut.h"
+#include "cut/logic_extractor.h"
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
 #include "delay_optimization_strategy.h"
-#include "logic_cut.h"
-#include "logic_extractor.h"
+#include "rsz/Resizer.hh"
+#include "sta/Delay.hh"
 #include "sta/Graph.hh"
 #include "sta/GraphDelayCalc.hh"
-#include "sta/PortDirection.hh"
 #include "sta/Search.hh"
-#include "sta/Units.hh"
-#include "sta/VerilogWriter.hh"
-#include "unique_name.h"
+#include "utils.h"
 #include "utl/Logger.h"
 #include "utl/deleter.h"
+#include "utl/unique_name.h"
 
 namespace rmp {
 
-std::vector<sta::Vertex*> GetNegativeEndpoints(sta::dbSta* sta)
-{
-  std::vector<sta::Vertex*> result;
-
-  sta::dbNetwork* network = sta->getDbNetwork();
-  for (sta::Vertex* vertex : *sta->endpoints()) {
-    sta::PortDirection* direction = network->direction(vertex->pin());
-    if (!direction->isInput()) {
-      continue;
-    }
-
-    const sta::Slack slack = sta->vertexSlack(vertex, sta::MinMax::max());
-
-    if (slack > 0.0) {
-      continue;
-    }
-    result.push_back(vertex);
-  }
-
-  return result;
-}
-
-void ZeroSlackStrategy::OptimizeDesign(sta::dbSta* sta, utl::Logger* logger)
+void ZeroSlackStrategy::OptimizeDesign(sta::dbSta* sta,
+                                       utl::UniqueName& name_generator,
+                                       rsz::Resizer* resizer,
+                                       utl::Logger* logger)
 {
   sta->ensureGraph();
   sta->ensureLevelized();
@@ -54,32 +35,48 @@ void ZeroSlackStrategy::OptimizeDesign(sta::dbSta* sta, utl::Logger* logger)
 
   sta::dbNetwork* network = sta->getDbNetwork();
 
-  AbcLibraryFactory factory(logger);
-  factory.AddDbSta(sta);
-  AbcLibrary abc_library = factory.Build();
+  std::vector<sta::Vertex*> candidate_vertices
+      = GetEndpoints(sta, resizer, 0.0);
 
-  std::vector<sta::Vertex*> candidate_vertices = GetNegativeEndpoints(sta);
+  if (candidate_vertices.empty()) {
+    logger->info(utl::RMP,
+                 50,
+                 "All candidate endpoints have positive slack, nothing to do.");
+    return;
+  }
+
+  cut::AbcLibraryFactory factory(logger);
+  factory.AddDbSta(sta);
+  factory.AddResizer(resizer);
+  factory.SetCorner(corner_);
+  cut::AbcLibrary abc_library = factory.Build();
 
   // Disable incremental timing.
   sta->graphDelayCalc()->delaysInvalid();
   sta->search()->arrivalsInvalid();
   sta->search()->endpointsInvalid();
 
-  rmp::UniqueName unique_name;
+  cut::LogicExtractorFactory logic_extractor(sta, logger);
   for (sta::Vertex* negative_endpoint : candidate_vertices) {
-    LogicExtractorFactory logic_extractor(sta, logger);
     logic_extractor.AppendEndpoint(negative_endpoint);
-    LogicCut cut = logic_extractor.BuildLogicCut(abc_library);
-
-    utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> mapped_abc_network
-        = cut.BuildMappedAbcNetwork(abc_library, network, logger);
-
-    DelayOptimizationStrategy strategy(sta);
-    utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> remapped
-        = strategy.Optimize(mapped_abc_network.get(), abc_library, logger);
-
-    cut.InsertMappedAbcNetwork(
-        remapped.get(), abc_library, network, unique_name, logger);
   }
+
+  cut::LogicCut cut = logic_extractor.BuildLogicCut(abc_library);
+
+  if (cut.IsEmpty()) {
+    logger->warn(
+        utl::RMP, 1032, "Logic cut is empty after extraction, nothing to do.");
+    return;
+  }
+
+  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> mapped_abc_network
+      = cut.BuildMappedAbcNetwork(abc_library, network, logger);
+
+  DelayOptimizationStrategy strategy;
+  utl::UniquePtrWithDeleter<abc::Abc_Ntk_t> remapped
+      = strategy.Optimize(mapped_abc_network.get(), abc_library, logger);
+
+  cut.InsertMappedAbcNetwork(
+      remapped.get(), abc_library, network, name_generator, logger);
 }
 }  // namespace rmp

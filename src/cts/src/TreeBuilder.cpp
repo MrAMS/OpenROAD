@@ -3,17 +3,16 @@
 
 #include "TreeBuilder.h"
 
-#include <boost/polygon/polygon.hpp>
+#include <algorithm>
+#include <cassert>
 #include <cmath>
-#include <fstream>
-#include <iomanip>
-#include <iostream>
 #include <limits>
-#include <map>
-#include <memory>
 #include <string>
 #include <vector>
 
+#include "boost/polygon/polygon.hpp"
+#include "odb/db.h"
+#include "odb/geom.h"
 #include "odb/geom_boost.h"
 #include "utl/Logger.h"
 
@@ -26,14 +25,26 @@ void TreeBuilder::mergeBlockages()
   namespace gtl = boost::polygon;
   using boost::polygon::operators::operator+=;
 
+  uint macros_max_dx = 0, macros_max_dy = 0;
   odb::dbBlock* block = db_->getChip()->getBlock();
   gtl::polygon_90_set_data<int> blockage_polygons;
   // Add the macros into the polygon set
   for (odb::dbInst* inst : block->getInsts()) {
     if (inst->getMaster()->getType().isBlock()
         && inst->getPlacementStatus().isPlaced()) {
+      macros_max_dx = std::max(macros_max_dx, inst->getBBox()->getDX());
+      macros_max_dy = std::max(macros_max_dy, inst->getBBox()->getDY());
       blockage_polygons += inst->getBBox()->getBox();
     }
+  }
+
+  // Set macros clustering diameter as 2 * macros highest dimention.
+  double max_diameter
+      = block->dbuToMicrons(2 * std::max(macros_max_dx, macros_max_dy));
+
+  if (max_diameter && !options_->isMacroMaxDiameterSet()) {
+    options_->setMacroMaxDiameter(
+        std::max(max_diameter, options_->getMacroMaxDiameter()));
   }
 
   // Add the hard blockages into the polygon set
@@ -94,6 +105,17 @@ void TreeBuilder::initBlockages()
                 "{} blockages from hard placement blockages and placed macros "
                 "will be used.",
                 blockages_.size());
+}
+
+// Returns true if the tree has no sub-trees.
+bool TreeBuilder::isLeafTree()
+{
+  if (type_ == TreeType::MacroTree) {
+    // Because the register tree is a child of the macro tree
+    // but it is not a sub-tree ignore the first child.
+    return children_.size() == 1;
+  }
+  return children_.empty();
 }
 
 // Check if location (x, y) is legal by checking if

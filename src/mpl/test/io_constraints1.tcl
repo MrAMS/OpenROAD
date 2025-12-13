@@ -1,5 +1,5 @@
 # Test if pin access blockage is generated correctly for a case
-# with pins in a single boundary.
+# with pins constrained to a single boundary.
 source "helpers.tcl"
 
 # We're not interested in the connections, so don't include the lib.
@@ -15,7 +15,7 @@ read_def "./testcases/io_constraints1.def" -floorplan_initialize
 set_io_pin_constraint -direction INPUT -region left:*
 
 set_thread_count 0
-rtl_macro_placer -report_directory results/io_constraints1 -halo_width 4.0
+rtl_macro_placer -report_directory [make_result_dir] -halo_width 4.0
 
 set def_file [make_result_file io_constraints1.def]
 write_def $def_file

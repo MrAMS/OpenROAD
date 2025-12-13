@@ -8,6 +8,8 @@
 #include "AbstractFastRouteRenderer.h"
 #include "FastRoute.h"
 #include "gui/gui.h"
+#include "odb/db.h"
+#include "stt/SteinerTreeBuilder.h"
 
 namespace grt {
 

@@ -2,6 +2,8 @@
 # Copyright (c) 2022-2025, The OpenROAD Authors
 load("//test:regression.bzl", "regression_test")
 
+package(features = ["layering_check"])
+
 # From CMakeLists.txt or_integration_tests(TESTS
 COMPULSORY_TESTS = [
     "gcd_fill",
@@ -40,7 +42,7 @@ filegroup(
 [
     filegroup(
         name = test_name + "_resources",
-        data = [":regression_resources"] + glob(
+        srcs = [":regression_resources"] + glob(
             [
                 test_name + ".*",
             ],

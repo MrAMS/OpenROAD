@@ -81,7 +81,8 @@ void make_core_grid(pdn::VoltageDomain* domain,
                     const std::vector<odb::dbTechLayer*>& generate_obstructions,
                     pdn::PowerCell* powercell,
                     odb::dbNet* powercontrol,
-                    const char* powercontrolnetwork)
+                    const char* powercontrolnetwork,
+                    const std::vector<odb::dbTechLayer*>& pad_pin_layers)
 {
   PdnGen* pdngen = ord::getPdnGen();
   StartsWith starts_with = POWER;
@@ -95,7 +96,8 @@ void make_core_grid(pdn::VoltageDomain* domain,
                        generate_obstructions, 
                        powercell, 
                        powercontrol, 
-                       powercontrolnetwork);
+                       powercontrolnetwork,
+                       pad_pin_layers);
 }
 
 void make_instance_grid(pdn::VoltageDomain* domain,
@@ -229,7 +231,8 @@ void make_strap(const char* grid_name,
                 bool use_grid_power_order,
                 bool starts_with_power,
                 pdn::ExtensionMode extend,
-                const std::vector<odb::dbNet*>& nets)
+                const std::vector<odb::dbNet*>& nets,
+                bool allow_out_of_core)
 {
   PdnGen* pdngen = ord::getPdnGen();
   StartsWith starts_with = GRID;
@@ -251,7 +254,8 @@ void make_strap(const char* grid_name,
                       snap,
                       starts_with,
                       extend,
-                      nets);
+                      nets,
+                      allow_out_of_core);
   }
 }
 
@@ -267,12 +271,13 @@ void make_connect(const char* grid_name,
                   const std::vector<odb::dbTechLayer*>& ongrid,
                   const std::vector<odb::dbTechLayer*>& split_cuts_layers,
                   const std::vector<int>& split_cut_pitches,
+                  const bool split_cut_stagger,
                   const char* dont_use_vias)
 {
   PdnGen* pdngen = ord::getPdnGen();
-  std::map<odb::dbTechLayer*, int> split_cuts;
+  std::map<odb::dbTechLayer*, std::pair<int, bool>> split_cuts;
   for (size_t i = 0; i < split_cuts_layers.size(); i++) {
-    split_cuts[split_cuts_layers[i]] = split_cut_pitches[i];
+    split_cuts[split_cuts_layers[i]] = {split_cut_pitches[i], split_cut_stagger};
   }
   for (auto* grid : pdngen->findGrid(grid_name)) {
     pdngen->makeConnect(grid, layer0, layer1, cut_pitch_x, cut_pitch_y, vias, techvias, max_rows, max_columns, ongrid, split_cuts, dont_use_vias);

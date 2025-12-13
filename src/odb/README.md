@@ -407,6 +407,57 @@ replace_design instance_name module_name
 | `module_name`   | Name of a new module that needs to be swapped in.  |
 
 
+### Create Blockage
+
+This command provides a unified interface for creating placement blockages. The command supports hard, soft, and partial blockages with flexible configuration options.
+
+```tcl
+create_blockage 
+    -region {x1 y1 x2 y2}
+    [-inst instance] 
+    [-max_density density] 
+    [-soft]
+```
+
+#### Options
+
+| Switch Name | Description |
+| ----- | ----- |
+| `region` | (required) Blockage coordinates in microns. For example, {0 0 10 10} |
+| `inst`   | (optional): Associate blockage with a specific instance.  |
+| `max_density`   | (optional): Maximum density for partial blockages (0-100).  |
+| `soft`   | (optional): Create a soft blockage only blocked during initial placement.  |
+
+
+### Create Routing Obstruction
+
+This command provides a unified interface for creating routing blockages.
+
+```tcl
+create_obstruction
+    -region {x1 y1 x2 y2}
+    -layer layer
+    [-inst instance]
+    [-slot]
+    [-fill]
+    [-except_pg]
+    [-min_spacing space]
+    [-effective_width width]
+```
+
+#### Options
+
+| Switch Name | Description |
+| ----- | ----- |
+| `region` | (required) Obstruction coordinates in microns. For example, {0 0 10 10} |
+| `layer`| (required) Layer to apply the obstruction on. |
+| `inst` | (optional): Associate obstruction with a specific instance.  |
+| `slot` | (optional): Mark as a slot obstruction.
+| `fill` | (optional): Mark as a fill obstruction.
+| `min_spacing` | (optional): Add a minimum spacing to the obstruction.  |
+| `effective_width` | (optional): Add an effective width to the obstruction.  |
+
+
 ## Example scripts
 
 After building successfully, run OpenDB Tcl shell using
@@ -422,6 +473,14 @@ You can find examples on using the API from Tcl under `test/tcl/` directory.
 
 The full set of the Tcl commands exposed can be found under
 `./build/src/swig/tcl/opendb_wrapper.cpp`. Search for `SWIG_prefix`.
+
+### All pin placed
+
+This command checks if the IO pins of the design have a placement status of `PLACED`, `LOCKED`, `FIRM`, or `COVER`. Return `1` if true, and `0` if false.
+
+```tcl
+all_pins_placed
+```
 
 ## Regression tests
 

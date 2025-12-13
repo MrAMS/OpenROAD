@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -25,6 +26,7 @@ class NesterovBaseCommon;
 class NesterovBase;
 class GNet;
 class Die;
+struct PlaceOptions;
 
 // for GGrid
 class Tile
@@ -119,30 +121,27 @@ class TileGrid
   int numRoutingLayers_ = 0;
 };
 
-class RouteBaseVars
+struct RouteBaseVars
 {
- public:
-  bool useRudy;
-  float targetRC;
-  float inflationRatioCoef;
-  float maxInflationRatio;
-  float maxDensity;
-  float ignoreEdgeRatio;
-  float minInflationRatio;
+  RouteBaseVars(const PlaceOptions& options);
+
+  const bool useRudy;
+  const float targetRC;
+  const float inflationRatioCoef;
+  const float maxInflationRatio;
+  const float maxDensity;
+  const float ignoreEdgeRatio;
+  const float minInflationRatio;
 
   // targetRC metric coefficients.
-  float rcK1, rcK2, rcK3, rcK4;
+  const float rcK1, rcK2, rcK3, rcK4;
 
-  int maxInflationIter;
-
-  RouteBaseVars();
-  void reset();
+  const int maxInflationIter;
 };
 
 class RouteBase
 {
  public:
-  RouteBase();
   RouteBase(RouteBaseVars rbVars,
             odb::dbDatabase* db,
             grt::GlobalRouter* grouter,
@@ -154,25 +153,22 @@ class RouteBase
   // Functions using fastroute on grt are saved as backup.
   void updateGrtRoute();
   void getGrtResult();
+  // TODO: understand why this function is breaking RUDY.
+  // Allow for grt heatmap during gpl execution.
+  void loadGrt();
   float getGrtRC() const;
 
   void updateRudyRoute();
   void getRudyResult();
-  float getRudyRC() const;
+  float getRudyRC(bool verbose = true) const;
 
   // first: is Routability Need
   // second: reverting procedure need in NesterovPlace
   //         (e.g. calling NesterovPlace's init())
-  std::pair<bool, bool> routability();
+  std::pair<bool, bool> routability(int routability_driven_revert_count);
 
-  int64_t inflatedAreaDelta() const;
+  std::vector<int64_t> inflatedAreaDelta() const;
   int numCall() const;
-
-  void revertGCellSizeToMinRc();
-  void pushBackMinRcCellSize(int dx, int dy)
-  {
-    minRcCellSize_.emplace_back(dx, dy);
-  }
 
  private:
   RouteBaseVars rbVars_;
@@ -185,7 +181,7 @@ class RouteBase
 
   std::unique_ptr<TileGrid> tg_;
 
-  int64_t inflatedAreaDelta_ = 0;
+  std::vector<int64_t> inflatedAreaDelta_;
 
   int numCall_ = 0;
 
@@ -194,13 +190,14 @@ class RouteBase
   // minRcInflationSize_ will store
   // GCell's width and height
   float minRc_ = 1e30;
-  float minRcTargetDensity_ = 0;
-  int minRcViolatedCnt_ = 0;
-  std::vector<std::pair<int, int>> minRcCellSize_;
+  std::vector<float> minRcTargetDensity_;
+  int min_RC_violated_cnt_ = 0;
+  int max_routability_no_improvement_ = 3;
+  int max_routability_revert_ = 50;
 
   void init();
-  void reset();
   void resetRoutabilityResources();
+  void revertToMinCongestion();
 
   // update numCall_
   void increaseCounter();

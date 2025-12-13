@@ -4,11 +4,13 @@
 #include "TechChar.h"
 
 #include <algorithm>
+#include <bitset>
 #include <cmath>
 #include <cstddef>
-#include <fstream>
+#include <cstdint>
+#include <deque>
 #include <functional>
-#include <iomanip>
+#include <iterator>
 #include <limits>
 #include <ostream>
 #include <sstream>
@@ -17,14 +19,21 @@
 #include <vector>
 
 #include "db_sta/dbSta.hh"
+#include "odb/db.h"
+#include "odb/dbSet.h"
 #include "rsz/Resizer.hh"
 #include "sta/Graph.hh"
 #include "sta/Liberty.hh"
+#include "sta/LibertyClass.hh"
+#include "sta/MinMax.hh"
 #include "sta/PathAnalysisPt.hh"
+#include "sta/PowerClass.hh"
 #include "sta/Sdc.hh"
 #include "sta/Search.hh"
 #include "sta/TableModel.hh"
 #include "sta/TimingArc.hh"
+#include "sta/TimingModel.hh"
+#include "sta/Transition.hh"
 #include "sta/Units.hh"
 #include "utl/Logger.h"
 
@@ -36,11 +45,13 @@ TechChar::TechChar(CtsOptions* options,
                    odb::dbDatabase* db,
                    sta::dbSta* sta,
                    rsz::Resizer* resizer,
+                   est::EstimateParasitics* estimate_parasitics,
                    sta::dbNetwork* db_network,
                    Logger* logger)
     : options_(options),
       db_(db),
       resizer_(resizer),
+      estimate_parasitics_(estimate_parasitics),
       openSta_(sta),
       openStaChar_(nullptr),
       db_network_(db_network),
@@ -418,8 +429,10 @@ void TechChar::initClockLayerResCap(float dbUnitsPerMicron)
   sta::Corner* corner = openSta_->cmdCorner();
 
   // convert from per meter to per dbu
-  capPerDBU_ = resizer_->wireClkCapacitance(corner) * 1e-6 / dbUnitsPerMicron;
-  resPerDBU_ = resizer_->wireClkResistance(corner) * 1e-6 / dbUnitsPerMicron;
+  capPerDBU_ = estimate_parasitics_->wireClkCapacitance(corner) * 1e-6
+               / dbUnitsPerMicron;
+  resPerDBU_ = estimate_parasitics_->wireClkResistance(corner) * 1e-6
+               / dbUnitsPerMicron;
 
   if (resPerDBU_ == 0.0 || capPerDBU_ == 0.0) {
     logger_->warn(CTS,
@@ -699,7 +712,7 @@ void TechChar::trimSortBufferList(std::vector<std::string>& buffers)
       if (cap < lowCap || cap > highCap) {
         it = buffers.erase(it);
         // clang-format off
-        debugPrint(logger_, CTS, "buffering", 1, "  removing {}", buf);
+        debugPrint(logger_, CTS, "buffering", 1, "  removing {} outside of low/high max cap", buf);
         // clang-format on
       } else {
         ++it;
@@ -720,9 +733,13 @@ void TechChar::trimSortBufferList(std::vector<std::string>& buffers)
     float prev = getMaxCapLimit(*it);
     ++it;
     while (it != buffers.end()) {
-      float curr = getMaxCapLimit(*it);
+      std::string buf = *it;
+      float curr = getMaxCapLimit(buf);
       if (std::abs(prev - curr) / curr < 0.1) {
         it = buffers.erase(it);
+        // clang-format off
+        debugPrint(logger_, CTS, "buffering", 1, "  removing {} within 10% of prev neighbor's max cap", buf);
+        // clang-format on
       } else {
         ++it;
         prev = curr;

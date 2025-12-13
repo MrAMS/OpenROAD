@@ -33,6 +33,10 @@
 
 #define EXTERN extern "C"
 
+#include <cstdio>
+
+#include "defiMisc.hpp"
+#include "defiTypedefs.h"
 #include "defiVia.h"
 #include "defiVia.hpp"
 

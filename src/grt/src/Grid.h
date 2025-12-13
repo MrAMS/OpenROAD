@@ -3,18 +3,16 @@
 
 #pragma once
 
-#include <boost/icl/interval.hpp>
 #include <cmath>
-#include <iostream>
-#include <map>
 #include <vector>
 
-#include "RoutingTracks.h"
-#include "odb/db.h"
-
-using boost::icl::interval;
+#include "boost/icl/interval.hpp"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
 
 namespace grt {
+
+using boost::icl::interval;
 
 class Grid
 {
@@ -23,12 +21,12 @@ class Grid
   ~Grid() = default;
 
   void init(const odb::Rect& die_area,
-            const int tile_size,
-            const int x_grids,
-            const int y_grids,
-            const bool perfect_regular_x,
-            const bool perfectR_rgular_y,
-            const int num_layers);
+            int tile_size,
+            int x_grids,
+            int y_grids,
+            bool perfect_regular_x,
+            bool perfectR_rgular_y,
+            int num_layers);
 
   void clear();
 
@@ -54,35 +52,9 @@ class Grid
 
   int getNumLayers() const { return num_layers_; }
 
-  void setPitchesInTile(const int pitches_in_tile)
-  {
-    pitches_in_tile_ = pitches_in_tile;
-  }
-
-  int getPitchesInTile() const { return pitches_in_tile_; }
-
   const std::vector<int>& getTrackPitches() const { return track_pitches_; }
 
   void addTrackPitch(int value, int layer) { track_pitches_[layer] = value; }
-
-  const std::vector<int>& getHorizontalEdgesCapacities()
-  {
-    return horizontal_edges_capacities_;
-  };
-
-  const std::vector<int>& getVerticalEdgesCapacities()
-  {
-    return vertical_edges_capacities_;
-  };
-
-  void setHorizontalCapacity(int capacity, int layer)
-  {
-    horizontal_edges_capacities_[layer] = capacity;
-  }
-  void setVerticalCapacity(int capacity, int layer)
-  {
-    vertical_edges_capacities_[layer] = capacity;
-  }
 
   odb::Point getPositionOnGrid(const odb::Point& position);
 
@@ -109,6 +81,7 @@ class Grid
 
   odb::Point getMiddle();
   const odb::Rect& getGridArea() const;
+  odb::Point getPositionFromGridPoint(int x, int y);
 
  private:
   odb::Rect die_area_;
@@ -118,10 +91,7 @@ class Grid
   bool perfect_regular_x_;
   bool perfect_regular_y_;
   int num_layers_;
-  int pitches_in_tile_ = 15;
   std::vector<int> track_pitches_;
-  std::vector<int> horizontal_edges_capacities_;
-  std::vector<int> vertical_edges_capacities_;
 };
 
 }  // namespace grt

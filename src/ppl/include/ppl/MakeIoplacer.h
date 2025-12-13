@@ -3,18 +3,10 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace ppl {
-class IOPlacer;
-}
 
-namespace ord {
+void initIoplacer(Tcl_Interp* tcl_interp);
 
-class OpenRoad;
-
-ppl::IOPlacer* makeIoplacer();
-
-void initIoplacer(OpenRoad* openroad);
-
-void deleteIoplacer(ppl::IOPlacer* ioplacer);
-
-}  // namespace ord
+}  // namespace ppl

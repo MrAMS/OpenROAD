@@ -3,18 +3,16 @@
 
 #pragma once
 
+#include "tcl.h"
+namespace utl {
+class Logger;
+}  // namespace utl
+
 namespace gpl {
+
 class Replace;
-}
 
-namespace ord {
+void initReplace(Tcl_Interp* tcl_interp);
+void initReplaceGraphics(Replace* replace, utl::Logger* log);
 
-class OpenRoad;
-
-gpl::Replace* makeReplace();
-
-void initReplace(OpenRoad* openroad);
-
-void deleteReplace(gpl::Replace* replace);
-
-}  // namespace ord
+}  // namespace gpl

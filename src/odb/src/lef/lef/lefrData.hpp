@@ -30,6 +30,7 @@
 #ifndef lefrData_h
 #define lefrData_h
 
+#include <cstdio>
 #include <cstring>
 #include <map>
 #include <string>
@@ -38,6 +39,7 @@
 #include "lefiArray.hpp"
 #include "lefiCrossTalk.hpp"
 #include "lefiDefs.hpp"
+#include "lefiKRDefs.hpp"
 #include "lefiLayer.hpp"
 #include "lefiMacro.hpp"
 #include "lefiNonDefault.hpp"

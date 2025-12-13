@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2019-2025, The OpenROAD Authors
 
-#include <boost/polygon/polygon.hpp>
 #include <map>
 #include <optional>
 #include <set>
@@ -9,6 +8,8 @@
 #include <utility>
 #include <vector>
 
+#include "boost/geometry/geometry.hpp"
+#include "boost/polygon/polygon.hpp"
 #include "odb/db.h"
 #include "odb/dbTypes.h"
 #include "odb/geom.h"
@@ -78,13 +79,13 @@ struct EndcapCellOptions
   odb::dbMaster* right_edge = nullptr;
 
   std::string prefix = "PHY_";
+  bool tapcell_cmd = false;
 };
 
 class Tapcell
 {
  public:
-  Tapcell();
-  void init(odb::dbDatabase* db, utl::Logger* logger);
+  Tapcell(odb::dbDatabase* db, utl::Logger* logger);
   void setTapPrefix(const std::string& tap_prefix);
   void setEndcapPrefix(const std::string& endcap_prefix);
   void clear();
@@ -219,7 +220,8 @@ class Tapcell
 
   EndcapCellOptions correctEndcapOptions(const Options& options) const;
 
-  odb::dbMaster* getMasterByType(const odb::dbMasterType& type) const;
+  odb::dbMaster* getMasterByType(const odb::dbMasterType& type,
+                                 const std::string& option_name) const;
   std::set<odb::dbMaster*> findMasterByType(
       const odb::dbMasterType& type) const;
   odb::dbBlock* getBlock() const;

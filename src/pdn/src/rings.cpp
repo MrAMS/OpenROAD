@@ -4,11 +4,15 @@
 #include "rings.h"
 
 #include <algorithm>
+#include <array>
+#include <memory>
+#include <utility>
 #include <vector>
 
 #include "domain.h"
 #include "grid.h"
 #include "odb/db.h"
+#include "odb/dbTypes.h"
 #include "techlayer.h"
 #include "utl/Logger.h"
 
@@ -219,19 +223,26 @@ void Rings::makeShapes(const Shape::ShapeTreeMap& other_shapes)
     single_layer_ring = true;
   }
 
+  using LayerPair = std::pair<Layer*, Layer*>;
+  const std::array<LayerPair, 2> build_layers{
+      LayerPair{&layers_[0], &layers_[1]}, LayerPair{&layers_[1], &layers_[0]}};
+
   bool processed_horizontal = false;
-  for (const auto& layer_def : layers_) {
-    auto* layer = layer_def.layer;
-    const int width = layer_def.width;
-    const int pitch = layer_def.spacing + width;
+  for (const auto& [layer_def, layer_other] : build_layers) {
+    auto* layer = layer_def->layer;
+    const int width = layer_def->width;
+    const int pitch = layer_def->spacing + width;
+
+    const int other_width = layer_other->width;
+    const int other_pitch = layer_other->spacing + other_width;
     if ((single_layer_ring && !processed_horizontal)
         || (!single_layer_ring
             && layer->getDirection() == odb::dbTechLayerDir::HORIZONTAL)) {
       processed_horizontal = true;
 
       // bottom
-      int x_start = core.xMin() - width;
-      int x_end = core.xMax() + width;
+      int x_start = core.xMin() - other_width;
+      int x_end = core.xMax() + other_width;
       if (extend_to_boundary_) {
         x_start = boundary.xMin();
         x_end = boundary.xMax();
@@ -239,32 +250,34 @@ void Rings::makeShapes(const Shape::ShapeTreeMap& other_shapes)
       int y_start = core.yMin() - width;
       int y_end = core.yMin();
       for (auto net : nets) {
-        addShape(new Shape(layer,
-                           net,
-                           odb::Rect(x_start, y_start, x_end, y_end),
-                           odb::dbWireShapeType::RING));
+        addShape(
+            std::make_unique<Shape>(layer,
+                                    net,
+                                    odb::Rect(x_start, y_start, x_end, y_end),
+                                    odb::dbWireShapeType::RING));
         if (!extend_to_boundary_) {
-          x_start -= pitch;
-          x_end += pitch;
+          x_start -= other_pitch;
+          x_end += other_pitch;
         }
         y_start -= pitch;
         y_end -= pitch;
       }
       // top
       if (!extend_to_boundary_) {
-        x_start = core.xMin() - width;
-        x_end = core.xMax() + width;
+        x_start = core.xMin() - other_width;
+        x_end = core.xMax() + other_width;
       }
       y_start = core.yMax();
       y_end = y_start + width;
       for (auto net : nets) {
-        addShape(new Shape(layer,
-                           net,
-                           odb::Rect(x_start, y_start, x_end, y_end),
-                           odb::dbWireShapeType::RING));
+        addShape(
+            std::make_unique<Shape>(layer,
+                                    net,
+                                    odb::Rect(x_start, y_start, x_end, y_end),
+                                    odb::dbWireShapeType::RING));
         if (!extend_to_boundary_) {
-          x_start -= pitch;
-          x_end += pitch;
+          x_start -= other_pitch;
+          x_end += other_pitch;
         }
         y_start += pitch;
         y_end += pitch;
@@ -273,41 +286,43 @@ void Rings::makeShapes(const Shape::ShapeTreeMap& other_shapes)
       // left
       int x_start = core.xMin() - width;
       int x_end = core.xMin();
-      int y_start = core.yMin() - width;
-      int y_end = core.yMax() + width;
+      int y_start = core.yMin() - other_width;
+      int y_end = core.yMax() + other_width;
       if (extend_to_boundary_) {
         y_start = boundary.yMin();
         y_end = boundary.yMax();
       }
       for (auto net : nets) {
-        addShape(new Shape(layer,
-                           net,
-                           odb::Rect(x_start, y_start, x_end, y_end),
-                           odb::dbWireShapeType::RING));
+        addShape(
+            std::make_unique<Shape>(layer,
+                                    net,
+                                    odb::Rect(x_start, y_start, x_end, y_end),
+                                    odb::dbWireShapeType::RING));
         x_start -= pitch;
         x_end -= pitch;
         if (!extend_to_boundary_) {
-          y_start -= pitch;
-          y_end += pitch;
+          y_start -= other_pitch;
+          y_end += other_pitch;
         }
       }
       // right
       x_start = core.xMax();
       x_end = x_start + width;
       if (!extend_to_boundary_) {
-        y_start = core.yMin() - width;
-        y_end = core.yMax() + width;
+        y_start = core.yMin() - other_width;
+        y_end = core.yMax() + other_width;
       }
       for (auto net : nets) {
-        addShape(new Shape(layer,
-                           net,
-                           odb::Rect(x_start, y_start, x_end, y_end),
-                           odb::dbWireShapeType::RING));
+        addShape(
+            std::make_unique<Shape>(layer,
+                                    net,
+                                    odb::Rect(x_start, y_start, x_end, y_end),
+                                    odb::dbWireShapeType::RING));
         x_start += pitch;
         x_end += pitch;
         if (!extend_to_boundary_) {
-          y_start -= pitch;
-          y_end += pitch;
+          y_start -= other_pitch;
+          y_end += other_pitch;
         }
       }
     }

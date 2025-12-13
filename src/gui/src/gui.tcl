@@ -100,10 +100,10 @@ proc save_image { args } {
     if { $tech == "NULL" } {
       utl::error GUI 17 "No technology loaded."
     }
-    set resolution [expr $keys(-resolution) * [$tech getLefUnits]]
+    set resolution [expr $keys(-resolution) * [$tech getDbUnitsPerMicron]]
     if { $resolution < 1 } {
       set resolution 1.0
-      set res_per_pixel [expr $resolution / [$tech getLefUnits]]
+      set res_per_pixel [expr $resolution / [$tech getDbUnitsPerMicron]]
       utl::warn GUI 31 "Resolution too high for design, defaulting to ${res_per_pixel}um per pixel"
     }
   }
@@ -135,6 +135,82 @@ proc save_image { args } {
 
   # delete map
   rename $options ""
+}
+
+sta::define_cmd_args "save_animated_gif" {-start|-add|-end \
+                                          [-area {x0 y0 x1 y1}] \
+                                          [-width width] \
+                                          [-resolution microns_per_pixel] \
+                                          [-delay delay] \
+                                          [-key key] \
+                                          [path]
+}
+
+proc save_animated_gif { args } {
+  sta::parse_key_args "save_animated_gif" args \
+    keys {-area -width -resolution -delay -key} flags {-start -end -add}
+
+  set resolution 0
+  if { [info exists keys(-resolution)] } {
+    sta::check_positive_float "-resolution" $keys(-resolution)
+    set tech [ord::get_db_tech]
+    if { $tech == "NULL" } {
+      utl::error GUI 52 "No technology loaded."
+    }
+    set resolution [expr $keys(-resolution) * [$tech getDbUnitsPerMicron]]
+    if { $resolution < 1 } {
+      set resolution 1.0
+      set res_per_pixel [expr $resolution / [$tech getDbUnitsPerMicron]]
+      utl::warn GUI 55 "Resolution too high for design, defaulting to ${res_per_pixel}um per pixel"
+    }
+  }
+
+  set area "0 0 0 0"
+  if { [info exists keys(-area)] } {
+    set area $keys(-area)
+    if { [llength $area] != 4 } {
+      utl::error GUI 48 "Area must contain 4 elements."
+    }
+  }
+
+  set width 0
+  if { [info exists keys(-width)] } {
+    if { $resolution != 0 } {
+      utl::error GUI 99 "Cannot set -width if -resolution has already been specified."
+    }
+    sta::check_positive_int "-width" $keys(-width)
+    set width $keys(-width)
+    if { $width == 0 } {
+      utl::error GUI 105 "Specified -width cannot be zero."
+    }
+  }
+
+  set delay 0
+  if { [info exists keys(-delay)] } {
+    set delay $keys(-delay)
+  }
+
+  set key -1
+  if { [info exists keys(-key)] } {
+    set key $keys(-key)
+  }
+
+  if { [info exists flags(-start)] } {
+    sta::check_argc_eq1 "save_animated_gif" $args
+    set path [lindex $args 0]
+
+    return [gui::gif_start $path]
+  } elseif { [info exists flags(-add)] } {
+    sta::check_argc_eq0 "save_animated_gif" $args
+
+    gui::gif_add $key {*}$area $width $resolution $delay
+  } elseif { [info exists flags(-end)] } {
+    sta::check_argc_eq0 "save_animated_gif" $args
+
+    gui::gif_end $key
+  } else {
+    utl::error GUI 106 "-start, -end, or -add is required"
+  }
 }
 
 sta::define_cmd_args "save_clocktree_image" {
@@ -340,4 +416,56 @@ proc focus_net { args } {
   } else {
     gui::focus_net $net
   }
+}
+
+sta::define_cmd_args "add_label" {-position {x y}
+                                  [-anchor anchor]
+                                  [-color color]
+                                  [-size size]
+                                  [-name name]
+                                  text
+}
+
+proc add_label { args } {
+  sta::parse_key_args "add_label" args \
+    keys {-position -anchor -color -size -name} flags {}
+
+  sta::check_argc_eq1 "add_label" $args
+
+  if { ![info exists keys(-position)] } {
+    utl::error GUI 46 "-position is required"
+  }
+  set pos $keys(-position)
+  if { [llength $pos] != 2 } {
+    utl::error GUI 47 "-position must contain x and y"
+  }
+
+  set anchor ""
+  if { [info exists keys(-anchor)] } {
+    set anchor $keys(-anchor)
+  }
+
+  set color ""
+  if { [info exists keys(-color)] } {
+    set color $keys(-color)
+  }
+
+  set size 0
+  if { [info exists keys(-size)] } {
+    set size $keys(-size)
+  }
+
+  set name ""
+  if { [info exists keys(-name)] } {
+    set name $keys(-name)
+  }
+
+  return [gui::add_label \
+    [lindex $pos 0] \
+    [lindex $pos 1] \
+    [lindex $args 0] \
+    $anchor \
+    $color \
+    $size \
+    $name]
 }

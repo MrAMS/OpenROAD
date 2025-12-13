@@ -3,34 +3,35 @@
 
 #pragma once
 
+#include <cassert>
 #include <map>
 #include <vector>
 
-#include "ZException.h"
-#include "dbMap.h"
+#include "odb/dbMap.h"
+#include "odb/dbSet.h"
 
 namespace odb {
 
 template <class T, class D>
 inline dbMap<T, D>::dbMap(const dbSet<T>& set)
 {
-  _set = set;
+  set_ = set;
 
   // Use a vector if this set represents a sequential iterator
-  if (_set.sequential()) {
-    _vector = new std::vector<D>(_set.sequential() + 1);
-    _map = nullptr;
+  if (set_.sequential()) {
+    _vector = new std::vector<D>(set_.sequential() + 1);
+    map_ = nullptr;
   }
 
   // Use a map if this set represents random iterator
   else {
     _vector = nullptr;
-    _map = new std::map<T*, D>;
+    map_ = new std::map<T*, D>;
     typename dbSet<T>::iterator itr;
 
-    for (itr = _set.begin(); itr != _set.end(); ++itr) {
+    for (itr = set_.begin(); itr != set_.end(); ++itr) {
       T* object = *itr;
-      (*_map)[object] = D();
+      (*map_)[object] = D();
     }
   }
 }
@@ -38,36 +39,33 @@ inline dbMap<T, D>::dbMap(const dbSet<T>& set)
 template <class T, class D>
 inline dbMap<T, D>::~dbMap()
 {
-  if (_map)
-    delete _map;
-
-  if (_vector)
-    delete _vector;
+  delete map_;
+  delete _vector;
 }
 
 template <class T, class D>
 inline const D& dbMap<T, D>::operator[](T* object) const
 {
-  if (_map) {
-    typename std::map<T*, D>::const_iterator itr = _map->find(object);
-    ZASSERT(itr != _map->end());
+  if (map_) {
+    typename std::map<T*, D>::const_iterator itr = map_->find(object);
+    assert(itr != map_->end());
     return (*itr).second;
   }
 
   uint idx = object->getId();
-  ZASSERT(idx && (idx < _vector->size()));
+  assert(idx && (idx < _vector->size()));
   return (*_vector)[idx];
 }
 
 template <class T, class D>
 inline D& dbMap<T, D>::operator[](T* object)
 {
-  if (_map) {
-    return _map->at(object);
+  if (map_) {
+    return map_->at(object);
   }
 
   uint idx = object->getId();
-  ZASSERT(idx && (idx < _vector->size()));
+  assert(idx && (idx < _vector->size()));
   return (*_vector)[idx];
 }
 

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <memory>
 
 #include "odb/geom.h"
@@ -13,6 +14,10 @@
 #include "sta/Path.hh"
 #include "sta/Transition.hh"
 #include "utl/Logger.h"
+
+namespace est {
+class EstimateParasitics;
+}
 
 namespace rsz {
 
@@ -40,6 +45,67 @@ class BufferedNet;
 using BufferedNetPtr = std::shared_ptr<BufferedNet>;
 using Requireds = std::array<Required, RiseFall::index_count>;
 
+class FixedDelay
+{
+ public:
+  FixedDelay();
+  explicit FixedDelay(sta::Delay float_value, Resizer* resizer);
+  sta::Delay toSeconds() const { return ((float) value_fs_) / second_; }
+
+  // 100 seconds
+  static const FixedDelay INF;
+  // 0 seconds
+  static const FixedDelay ZERO;
+
+  bool operator<(const FixedDelay rhs) const
+  {
+    return value_fs_ < rhs.value_fs_;
+  }
+  bool operator>(const FixedDelay rhs) const
+  {
+    return value_fs_ > rhs.value_fs_;
+  }
+  bool operator<=(const FixedDelay rhs) const
+  {
+    return value_fs_ <= rhs.value_fs_;
+  }
+  bool operator>=(const FixedDelay rhs) const
+  {
+    return value_fs_ >= rhs.value_fs_;
+  }
+  FixedDelay operator+(const FixedDelay rhs) const
+  {
+    return fromFs(value_fs_ + rhs.value_fs_);
+  }
+  FixedDelay operator-(const FixedDelay rhs) const
+  {
+    return fromFs(value_fs_ - rhs.value_fs_);
+  }
+  FixedDelay operator-() const { return fromFs(-value_fs_); }
+
+  static FixedDelay lerp(FixedDelay a, FixedDelay b, float t)
+  {
+    if (t == 1.0f) {
+      return b;
+    }
+
+    return a + fromFs((float) (b.value_fs_ - a.value_fs_) * t);
+  }
+
+ private:
+  static FixedDelay fromFs(int64_t v)
+  {
+    FixedDelay ret;
+    ret.value_fs_ = v;
+    return ret;
+  }
+
+  static constexpr double second_ = 1.0e15;
+
+  // delay in femtoseconds
+  int64_t value_fs_;
+};
+
 enum class BufferedNetType
 {
   load,
@@ -66,7 +132,8 @@ class BufferedNet
               int layer,
               const BufferedNetPtr& ref,
               const Corner* corner,
-              const Resizer* resizer);
+              const Resizer* resizer,
+              const est::EstimateParasitics* estimate_parasitics);
   // junc
   BufferedNet(BufferedNetType type,
               const Point& location,
@@ -79,7 +146,8 @@ class BufferedNet
               LibertyCell* buffer_cell,
               const BufferedNetPtr& ref,
               const Corner* corner,
-              const Resizer* resizer);
+              const Resizer* resizer,
+              const est::EstimateParasitics* estimate_parasitics);
   std::string to_string(const Resizer* resizer) const;
   void reportTree(const Resizer* resizer) const;
   void reportTree(int level, const Resizer* resizer) const;
@@ -103,6 +171,7 @@ class BufferedNet
   int layer() const { return layer_; }
   void wireRC(const Corner* corner,
               const Resizer* resizer,
+              const est::EstimateParasitics* estimate_parasitics,
               // Return values.
               double& res,
               double& cap);
@@ -119,21 +188,20 @@ class BufferedNet
   int maxLoadWireLength() const;
 
   // Rebuffer
-  Required required() const;
-  const Path* arrivalPath() const { return arrival_path_; }
-  const Path* requiredPath() const { return required_path_; }
-  void setArrivalPath(const Path* path);
-  void setRequiredPath(const Path* path);
-  Delay slack() const;
+  const sta::RiseFallBoth* slackTransition() const
+  {
+    return slack_transitions_;
+  };
+  void setSlackTransition(const sta::RiseFallBoth* transitions);
 
-  Delay requiredDelay() const { return required_delay_; }
-  void setRequiredDelay(Delay delay);
+  FixedDelay slack() const { return slack_; };
+  void setSlack(FixedDelay slack);
 
-  Delay delay() const { return delay_; }
-  void setDelay(Delay delay);
+  FixedDelay delay() const { return delay_; }
+  void setDelay(FixedDelay delay);
 
-  Delay arrivalDelay() const { return arrival_delay_; }
-  void setArrivalDelay(Delay delay);
+  FixedDelay arrivalDelay() const { return arrival_delay_; }
+  void setArrivalDelay(FixedDelay delay);
 
   // Downstream buffer count.
   int bufferCount() const;
@@ -141,6 +209,45 @@ class BufferedNet
   float area() const { return area_; }
 
   static constexpr int null_layer = -1;
+
+  struct Metrics
+  {
+    int max_load_wl;
+    FixedDelay slack = FixedDelay::ZERO;
+    float cap;
+    float max_load_slew;
+    float fanout;
+
+    Metrics withMaxLoadWl(int max_load_wl)
+    {
+      Metrics ret = *this;
+      ret.max_load_wl = max_load_wl;
+      return ret;
+    }
+
+    Metrics withSlack(FixedDelay slack)
+    {
+      Metrics ret = *this;
+      ret.slack = slack;
+      return ret;
+    }
+
+    Metrics withCap(float cap)
+    {
+      Metrics ret = *this;
+      ret.cap = cap;
+      return ret;
+    }
+  };
+
+  Metrics metrics() const
+  {
+    return Metrics{
+        maxLoadWireLength(), slack(), cap(), maxLoadSlew(), fanout()};
+  }
+
+  bool fitsEnvelope(Metrics target);
+  const Corner* corner() { return corner_; }
 
  private:
   BufferedNetType type_;
@@ -162,21 +269,23 @@ class BufferedNet
   float max_load_slew_{sta::INF};
 
   // Rebuffer annotations
-  // Path for worst required path at load.
-  const Path* required_path_{nullptr};
-  // PathRef for the corresponding arrival at driver pin.
-  const Path* arrival_path_{nullptr};
 
-  // Max delay from here to the loads.
-  Delay required_delay_{0.0};
-  // Area of buffers on the buffer tree looking dowsmtrem from here.
+  // Area of buffers on the buffer tree looking downstream from here
   float area_{0};
 
-  // Computed delay of the buffer/wire
-  Delay delay_ = 0;
+  // Transition we need to consider for buffer delays
+  const sta::RiseFallBoth* slack_transitions_ = nullptr;
 
-  // Delay from driver pin to here;
-  Delay arrival_delay_ = 0;
+  // Slack considering the buffer/wire delays downstream of here
+  FixedDelay slack_ = FixedDelay::ZERO;
+
+  // Computed delay of the buffer/wire
+  FixedDelay delay_ = FixedDelay::ZERO;
+
+  // Delay from driver pin to here
+  FixedDelay arrival_delay_ = FixedDelay::ZERO;
+
+  const Corner* corner_ = nullptr;
 };
 
 }  // namespace rsz

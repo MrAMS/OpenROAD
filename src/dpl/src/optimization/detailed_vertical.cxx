@@ -4,14 +4,18 @@
 #include "detailed_vertical.h"
 
 #include <algorithm>
-#include <boost/tokenizer.hpp>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
+#include "boost/token_functions.hpp"
+#include "boost/tokenizer.hpp"
 #include "detailed_manager.h"
 #include "detailed_orient.h"
+#include "dpl/Opendp.h"
 #include "infrastructure/detailed_segment.h"
 #include "objective/detailed_hpwl.h"
 #include "util/utility.h"
@@ -84,6 +88,9 @@ void DetailedVerticalSwap::run(DetailedMgr* mgrPtr,
   uint64_t hpwl_x, hpwl_y;
   int64_t curr_hpwl = Utility::hpwl(network_, hpwl_x, hpwl_y);
   const int64_t init_hpwl = curr_hpwl;
+  if (init_hpwl == 0) {
+    return;
+  }
   for (int p = 1; p <= passes; p++) {
     const int64_t last_hpwl = curr_hpwl;
 
@@ -101,7 +108,8 @@ void DetailedVerticalSwap::run(DetailedMgr* mgrPtr,
                             p,
                             (double) curr_hpwl);
 
-    if (std::abs(curr_hpwl - last_hpwl) / (double) last_hpwl <= tol) {
+    if (last_hpwl == 0
+        || std::abs(curr_hpwl - last_hpwl) / (double) last_hpwl <= tol) {
       // std::cout << "Terminating due to low improvement." << std::endl;
       break;
     }
@@ -149,8 +157,8 @@ void DetailedVerticalSwap::verticalSwap()
     const double nextHpwl = currHpwl - delta;  // -delta is +ve is less.
 
     if (nextHpwl <= currHpwl) {
+      hpwlObj.accept();
       mgr_->acceptMove();
-
       currHpwl = nextHpwl;
     } else {
       mgr_->rejectMove();

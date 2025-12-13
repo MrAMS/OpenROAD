@@ -3,42 +3,22 @@
 
 #include "psm/MakePDNSim.hh"
 
-#include <tcl.h>
-
-#include "ord/OpenRoad.hh"
 #include "psm/pdnsim.h"
+#include "tcl.h"
 #include "utl/decode.h"
-
-namespace psm {
-extern const char* psm_tcl_inits[];
-}
 
 extern "C" {
 extern int Psm_Init(Tcl_Interp* interp);
 }
 
-namespace ord {
+namespace psm {
 
-psm::PDNSim* makePDNSim()
-{
-  return new psm::PDNSim();
-}
+extern const char* psm_tcl_inits[];
 
-void initPDNSim(OpenRoad* openroad)
+void initPDNSim(Tcl_Interp* tcl_interp)
 {
-  Tcl_Interp* tcl_interp = openroad->tclInterp();
   Psm_Init(tcl_interp);
   utl::evalTclInit(tcl_interp, psm::psm_tcl_inits);
-  openroad->getPDNSim()->init(openroad->getLogger(),
-                              openroad->getDb(),
-                              openroad->getSta(),
-                              openroad->getResizer(),
-                              openroad->getOpendp());
 }
 
-void deletePDNSim(psm::PDNSim* pdnsim)
-{
-  delete pdnsim;
-}
-
-}  // namespace ord
+}  // namespace psm

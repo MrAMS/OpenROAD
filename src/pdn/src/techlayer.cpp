@@ -10,6 +10,9 @@
 #include <string>
 #include <vector>
 
+#include "odb/db.h"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
 #include "utl/Logger.h"
 
 namespace pdn {
@@ -44,11 +47,11 @@ void TechLayer::populateGrid(odb::dbBlock* block, odb::dbTechLayerDir dir)
 
   auto* tracks = block->findTrackGrid(layer_);
   if (dir == odb::dbTechLayerDir::HORIZONTAL) {
-    tracks->getGridY(grid_);
+    grid_ = tracks->getGridY();
   } else if (dir == odb::dbTechLayerDir::VERTICAL) {
-    tracks->getGridX(grid_);
+    grid_ = tracks->getGridX();
   } else {
-    tracks->getGridY(grid_);
+    grid_ = tracks->getGridY();
   }
 }
 

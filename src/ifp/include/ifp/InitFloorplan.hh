@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <cstdint>
+#include <limits>
 #include <set>
 #include <string>
 #include <vector>
@@ -33,6 +35,8 @@ enum class RowParity
 class InitFloorplan
 {
  public:
+  void makePolygonDie(const odb::Polygon& polygon);
+
   InitFloorplan() = default;  // only for swig
   InitFloorplan(odb::dbBlock* block, Logger* logger, sta::dbNetwork* network);
 
@@ -48,7 +52,8 @@ class InitFloorplan
                      odb::dbSite* base_site,
                      const std::vector<odb::dbSite*>& additional_sites = {},
                      RowParity row_parity = RowParity::NONE,
-                     const std::set<odb::dbSite*>& flipped_sites = {});
+                     const std::set<odb::dbSite*>& flipped_sites = {},
+                     int gap = std::numeric_limits<std::int32_t>::min());
 
   // The base_site determines the single-height rows.  For hybrid rows it is
   // a site containing a row pattern.
@@ -57,7 +62,8 @@ class InitFloorplan
                      odb::dbSite* base_site,
                      const std::vector<odb::dbSite*>& additional_sites = {},
                      RowParity row_parity = RowParity::NONE,
-                     const std::set<odb::dbSite*>& flipped_sites = {});
+                     const std::set<odb::dbSite*>& flipped_sites = {},
+                     int gap = std::numeric_limits<std::int32_t>::min());
 
   void insertTiecells(odb::dbMTerm* tie_term,
                       const std::string& prefix = "TIEOFF_");
@@ -87,7 +93,8 @@ class InitFloorplan
                            const std::vector<odb::dbSite*>& additional_sites
                            = {},
                            RowParity row_parity = RowParity::NONE,
-                           const std::set<odb::dbSite*>& flipped_sites = {});
+                           const std::set<odb::dbSite*>& flipped_sites = {},
+                           int gap = std::numeric_limits<std::int32_t>::min());
 
   // The base_site determines the single-height rows.  For hybrid rows it is
   // a site containing a row pattern.
@@ -95,7 +102,16 @@ class InitFloorplan
                 odb::dbSite* base_site,
                 const std::vector<odb::dbSite*>& additional_sites = {},
                 RowParity row_parity = RowParity::NONE,
-                const std::set<odb::dbSite*>& flipped_sites = {});
+                const std::set<odb::dbSite*>& flipped_sites = {},
+                int gap = std::numeric_limits<std::int32_t>::min());
+
+  // Create rows for a polygon core area using true polygon-aware generation
+  void makePolygonRows(const odb::Polygon& core_polygon,
+                       odb::dbSite* base_site,
+                       const std::vector<odb::dbSite*>& additional_sites = {},
+                       RowParity row_parity = RowParity::NONE,
+                       const std::set<odb::dbSite*>& flipped_sites = {},
+                       int gap = std::numeric_limits<std::int32_t>::min());
 
   void makeTracks();
   void makeTracks(odb::dbTechLayer* layer,
@@ -110,6 +126,7 @@ class InitFloorplan
                             int y_offset,
                             int y_pitch,
                             int first_last_pitch);
+  void resetTracks() const;
 
   odb::dbSite* findSite(const char* site_name);
 
@@ -118,7 +135,6 @@ class InitFloorplan
 
   double designArea();
   void checkInstanceDimensions(const odb::Rect& core) const;
-  void makeRows(const odb::dbSite::RowPattern& pattern, const odb::Rect& core);
   void makeUniformRows(odb::dbSite* base_site,
                        const SitesByName& sites_by_name,
                        const odb::Rect& core,
@@ -133,8 +149,30 @@ class InitFloorplan
   void makeTracks(const char* tracks_file, odb::Rect& die_area);
   void autoPlacePins(odb::dbTechLayer* pin_layer, odb::Rect& core);
   int snapToMfgGrid(int coord) const;
-  void updateVoltageDomain(int core_lx, int core_ly, int core_ux, int core_uy);
+  void updateVoltageDomain(int core_lx,
+                           int core_ly,
+                           int core_ux,
+                           int core_uy,
+                           int gap);
   void addUsedSites(std::map<std::string, odb::dbSite*>& sites_by_name) const;
+
+  // Private methods for polygon-aware row generation using scanline
+  // intersection
+  void makePolygonRowsScanline(const odb::Polygon& core_polygon,
+                               odb::dbSite* base_site,
+                               const SitesByName& sites_by_name,
+                               RowParity row_parity,
+                               const std::set<odb::dbSite*>& flipped_sites,
+                               int gap);
+
+  std::vector<odb::Rect> intersectRowWithPolygon(const odb::Rect& row,
+                                                 const odb::Polygon& polygon);
+
+  void makeUniformRowsPolygon(odb::dbSite* site,
+                              const odb::Polygon& core_polygon,
+                              const odb::Rect& core_bbox,
+                              RowParity row_parity,
+                              const std::set<odb::dbSite*>& flipped_sites);
 
   odb::dbBlock* block_{nullptr};
   Logger* logger_{nullptr};
@@ -143,6 +181,8 @@ class InitFloorplan
   // this is a set of sets of all constructed site ids.
   std::set<std::set<int>> constructed_patterns_;
   std::vector<std::vector<odb::dbSite*>> repeating_row_patterns_;
+
+  void checkGap(int gap);
 };
 
 }  // namespace ifp

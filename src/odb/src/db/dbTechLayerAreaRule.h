@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "dbCore.h"
+#include "odb/dbId.h"
 #include "odb/odb.h"
 
 namespace odb {
@@ -17,9 +18,9 @@ class _dbTechLayer;
 
 struct dbTechLayerAreaRuleFlags
 {
-  bool except_rectangle_ : 1;
-  uint overlap_ : 2;
-  uint spare_bits_ : 29;
+  bool except_rectangle : 1;
+  uint overlap : 2;
+  uint spare_bits : 29;
 };
 
 class _dbTechLayerAreaRule : public _dbObject

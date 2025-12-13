@@ -30,9 +30,11 @@
 #include "lefrSettings.hpp"
 
 #include <cstring>
+#include <map>
 #include <string>
 
 #include "lef_parser.hpp"
+#include "lefiKRDefs.hpp"
 
 BEGIN_LEF_PARSER_NAMESPACE
 
@@ -85,10 +87,7 @@ lefrSettings::lefrSettings()
 
 void lefrSettings::reset()
 {
-  if (lefSettings) {
-    delete lefSettings;
-  }
-
+  delete lefSettings;
   lefSettings = new lefrSettings();
 }
 

@@ -9,17 +9,12 @@
 #include <sys/timeb.h>
 
 #include <algorithm>
-#include <array>
 #include <cfloat>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
-#include <fstream>
-#include <iostream>
 #include <limits>
-#include <list>
-#include <map>
-#include <stack>
 #include <string>
 #include <utility>
 #include <vector>
@@ -308,10 +303,10 @@ void Clustering::minCostFlow(const std::vector<std::pair<float, float>>& means,
     src_sink_edges.push_back(graph.addArc(src, sink));
   }
   // edges between sinks and clusters
-  std::vector<float> costs;
+  std::vector<double> costs;
   for (size_t i = 0; i < sinks_.size(); ++i) {
     for (size_t j = 0; j < means.size(); ++j) {
-      float d = calcDist(means[j], &sinks_[i]);
+      double d = calcDist(means[j], &sinks_[i]);
       if (d <= dist) {
         d = std::pow(d, power);
         if (d < std::numeric_limits<int>::max()) {

@@ -5,14 +5,18 @@
 
 #include <algorithm>
 #include <memory>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "db/obj/frBlockObject.h"
 #include "db/obj/frBlockage.h"
 #include "db/obj/frBoundary.h"
 #include "db/obj/frMTerm.h"
 #include "frBaseTypes.h"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
 
 namespace drt {
 namespace io {
@@ -24,9 +28,9 @@ class frMaster : public frBlockObject
   // constructors
   frMaster(const frString& name) : name_(name) {}
   // getters
-  Rect getBBox() const
+  odb::Rect getBBox() const
   {
-    Rect box;
+    odb::Rect box;
     if (!boundaries_.empty()) {
       box = boundaries_.begin()->getBBox();
     }
@@ -35,7 +39,7 @@ class frMaster : public frBlockObject
     frCoord urx = box.xMax();
     frCoord ury = box.yMax();
     for (auto& boundary : boundaries_) {
-      Rect tmpBox = boundary.getBBox();
+      odb::Rect tmpBox = boundary.getBBox();
       llx = llx < tmpBox.xMin() ? llx : tmpBox.xMin();
       lly = lly < tmpBox.yMin() ? lly : tmpBox.yMin();
       urx = urx > tmpBox.xMax() ? urx : tmpBox.xMax();
@@ -44,7 +48,7 @@ class frMaster : public frBlockObject
     for (auto& term : getTerms()) {
       for (auto& pin : term->getPins()) {
         for (auto& fig : pin->getFigs()) {
-          Rect tmpBox = fig->getBBox();
+          odb::Rect tmpBox = fig->getBBox();
           llx = llx < tmpBox.xMin() ? llx : tmpBox.xMin();
           lly = lly < tmpBox.yMin() ? lly : tmpBox.yMin();
           urx = urx > tmpBox.xMax() ? urx : tmpBox.xMax();
@@ -52,9 +56,9 @@ class frMaster : public frBlockObject
         }
       }
     }
-    return Rect(llx, lly, urx, ury);
+    return odb::Rect(llx, lly, urx, ury);
   }
-  Rect getDieBox() const { return dieBox_; }
+  odb::Rect getDieBox() const { return dieBox_; }
   const std::vector<frBoundary>& getBoundaries() const { return boundaries_; }
   const std::vector<std::unique_ptr<frBlockage>>& getBlockages() const
   {
@@ -74,7 +78,12 @@ class frMaster : public frBlockObject
     }
     return nullptr;
   }
-  dbMasterType getMasterType() { return masterType_; }
+  odb::dbMasterType getMasterType() { return masterType_; }
+  bool hasPinAccessUpdate() const { return !updated_pa_indices_.empty(); }
+  const std::set<int>& getUpdatedPAIndices() const
+  {
+    return updated_pa_indices_;
+  }
 
   // setters
   void addTerm(std::unique_ptr<frMTerm> in)
@@ -94,7 +103,7 @@ class frMaster : public frBlockObject
     frCoord urx = dieBox_.xMax();
     frCoord ury = dieBox_.yMax();
     for (auto& boundary : boundaries_) {
-      Rect tmpBox = boundary.getBBox();
+      odb::Rect tmpBox = boundary.getBBox();
       llx = std::min(llx, tmpBox.xMin());
       lly = std::min(lly, tmpBox.yMin());
       urx = std::max(urx, tmpBox.xMax());
@@ -112,7 +121,9 @@ class frMaster : public frBlockObject
   {
     blockages_.push_back(std::move(in));
   }
-  void setMasterType(const dbMasterType& in) { masterType_ = in; }
+  void setMasterType(const odb::dbMasterType& in) { masterType_ = in; }
+  void setHasPinAccessUpdate(int in) { updated_pa_indices_.insert(in); }
+  void clearUpdatedPAIndices() { updated_pa_indices_.clear(); }
   // others
   frBlockObjectEnum typeId() const override { return frcMaster; }
 
@@ -120,9 +131,10 @@ class frMaster : public frBlockObject
   std::vector<std::unique_ptr<frMTerm>> terms_;
   std::vector<std::unique_ptr<frBlockage>> blockages_;
   std::vector<frBoundary> boundaries_;
-  Rect dieBox_;
+  odb::Rect dieBox_;
   frString name_;
-  dbMasterType masterType_{dbMasterType::CORE};
+  odb::dbMasterType masterType_{odb::dbMasterType::CORE};
+  std::set<int> updated_pa_indices_;
 
   friend class io::Parser;
 };

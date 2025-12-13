@@ -5,9 +5,16 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <functional>
 #include <limits>
 #include <vector>
 
+#include "Core.h"
+#include "Netlist.h"
+#include "Slots.h"
+#include "odb/db.h"
+#include "odb/geom.h"
 #include "utl/Logger.h"
 
 namespace ppl {
@@ -56,7 +63,7 @@ void HungarianMatching::createMatrix()
       std::vector<int> larger_costs;
       int slot_index = 0;
       for (int i = begin_slot_; i <= end_slot_; ++i) {
-        const Point& slot_pos = slots_[i].pos;
+        const odb::Point& slot_pos = slots_[i].pos;
         if (slots_[i].blocked) {
           continue;
         }
@@ -86,7 +93,7 @@ void HungarianMatching::createMatrix()
   }
 }
 
-inline bool samePos(Point& a, Point& b)
+inline bool samePos(odb::Point& a, odb::Point& b)
 {
   return (a.x() == b.x() && a.y() == b.y());
 }
@@ -128,6 +135,10 @@ void HungarianMatching::getFinalAssignment(std::vector<IOPin>& assignment,
         io_pin.setLayer(slots_[slot_index].layer);
         io_pin.setPlaced();
         io_pin.setEdge(slots_[slot_index].edge);
+        // Set line information only for polygon edges
+        if (slots_[slot_index].edge == Edge::polygonEdge) {
+          io_pin.setLine(slots_[slot_index].containing_line);
+        }
         assignment.push_back(io_pin);
         slots_[slot_index].used = true;
 
@@ -233,7 +244,7 @@ void HungarianMatching::createMatrixForGroups()
       for (int i : valid_starting_slots_) {
         int group_hpwl = 0;
         for (const int io_idx : pins) {
-          const Point& slot_pos = slots_[i].pos;
+          const odb::Point& slot_pos = slots_[i].pos;
 
           hungarian_matrix_[slot_index].resize(num_pin_groups_,
                                                std::numeric_limits<int>::max());
@@ -310,6 +321,10 @@ void HungarianMatching::getAssignmentForGroups(std::vector<IOPin>& assignment,
         io_pin.setPosition(slots_[slot_index + pin_cnt].pos);
         io_pin.setLayer(slots_[slot_index + pin_cnt].layer);
         io_pin.setEdge(slots_[slot_index + pin_cnt].edge);
+        // Set line information only for polygon edges
+        if (slots_[slot_index + pin_cnt].edge == Edge::polygonEdge) {
+          io_pin.setLine(slots_[slot_index + pin_cnt].containing_line);
+        }
         assignment.push_back(io_pin);
         slots_[slot_index + pin_cnt].used = true;
         slots_[slot_index + pin_cnt].blocked = true;

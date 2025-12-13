@@ -3,10 +3,13 @@
 
 #pragma once
 
+#include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "AbstractGraphics.h"
 #include "nesterovBase.h"
 #include "odb/dbBlockCallBackObj.h"
 #include "point.h"
@@ -27,7 +30,6 @@ class PlacerBaseCommon;
 class Instance;
 class RouteBase;
 class TimingBase;
-class Graphics;
 
 class NesterovPlace
 {
@@ -40,6 +42,7 @@ class NesterovPlace
                 std::vector<std::shared_ptr<NesterovBase>>& nbVec,
                 std::shared_ptr<RouteBase> rb,
                 std::shared_ptr<TimingBase> tb,
+                std::unique_ptr<AbstractGraphics> graphics,
                 utl::Logger* log);
   ~NesterovPlace();
 
@@ -56,18 +59,19 @@ class NesterovPlace
 
   float getWireLengthCoefX() const { return wireLengthCoefX_; }
   float getWireLengthCoefY() const { return wireLengthCoefY_; }
+  NesterovPlaceVars& getNpVars() { return npVars_; }
 
   void setTargetOverflow(float overflow) { npVars_.targetOverflow = overflow; }
   void setMaxIters(int limit) { npVars_.maxNesterovIter = limit; }
 
-  void updatePrevGradient(const std::shared_ptr<NesterovBase>& nb);
-  void updateCurGradient(const std::shared_ptr<NesterovBase>& nb);
-  void updateNextGradient(const std::shared_ptr<NesterovBase>& nb);
+  void npUpdatePrevGradient(const std::shared_ptr<NesterovBase>& nb);
+  void npUpdateCurGradient(const std::shared_ptr<NesterovBase>& nb);
+  void npUpdateNextGradient(const std::shared_ptr<NesterovBase>& nb);
 
   void resizeGCell(odb::dbInst*);
   void moveGCell(odb::dbInst*);
 
-  void createGCell(odb::dbInst*);
+  void createCbkGCell(odb::dbInst*);
   void createGNet(odb::dbNet*);
   void createCbkITerm(odb::dbITerm*);
 
@@ -76,6 +80,49 @@ class NesterovPlace
   void destroyCbkITerm(odb::dbITerm*);
 
  private:
+  void updateIterGraphics(int iter,
+                          const std::string& reports_dir,
+                          const std::string& routability_driven_dir,
+                          int routability_driven_count,
+                          int timing_driven_count,
+                          bool& final_routability_image_saved);
+  void runTimingDriven(int iter,
+                       const std::string& timing_driven_dir,
+                       int routability_driven_count,
+                       int& timing_driven_count,
+                       int64_t& td_accumulated_delta_area,
+                       bool is_routability_gpl_iter);
+  bool isDiverged(float& diverge_snapshot_WlCoefX,
+                  float& diverge_snapshot_WlCoefY,
+                  bool& is_diverge_snapshot_saved);
+  void routabilitySnapshot(int iter,
+                           float curA,
+                           const std::string& routability_driven_dir,
+                           int routability_driven_count,
+                           int timing_driven_count,
+                           bool& is_routability_snapshot_saved,
+                           float& route_snapshot_WlCoefX,
+                           float& route_snapshot_WlCoefY,
+                           float& route_snapshotA);
+  void runRoutability(int iter,
+                      int timing_driven_count,
+                      const std::string& routability_driven_dir,
+                      float route_snapshotA,
+                      float route_snapshot_WlCoefX,
+                      float route_snapshot_WlCoefY,
+                      int& routability_driven_count,
+                      float& curA,
+                      int64_t& end_routability_area);
+  bool isConverged(int gpl_iter_count, int routability_gpl_iter_count);
+  std::string getReportsDir() const;
+  void cleanReportsDirs(const std::string& timing_driven_dir,
+                        const std::string& routability_driven_dir) const;
+  void doBackTracking(float coeff);
+  void reportResults(int nesterov_iter,
+                     int64_t original_area,
+                     int64_t end_routability_area,
+                     int64_t td_accumulated_delta_area);
+
   std::shared_ptr<PlacerBaseCommon> pbc_;
   std::shared_ptr<NesterovBaseCommon> nbc_;
   std::vector<std::shared_ptr<PlacerBase>> pbVec_;
@@ -84,7 +131,7 @@ class NesterovPlace
   std::shared_ptr<RouteBase> rb_;
   std::shared_ptr<TimingBase> tb_;
   NesterovPlaceVars npVars_;
-  std::unique_ptr<Graphics> graphics_;
+  std::unique_ptr<AbstractGraphics> graphics_;
 
   float total_sum_overflow_ = 0;
   float total_sum_overflow_unscaled_ = 0;
@@ -109,7 +156,7 @@ class NesterovPlace
   float wireLengthCoefY_ = 0;
 
   // observability metrics
-  utl::Gauge<double>* hpwl_gauge_;
+  utl::Gauge<double>* hpwl_gauge_ = nullptr;
 
   // half-parameter-wire-length
   int64_t prevHpwl_ = 0;
@@ -123,8 +170,6 @@ class NesterovPlace
 
   int recursionCntWlCoef_ = 0;
   int recursionCntInitSLPCoef_ = 0;
-
-  void cutFillerCoordinates();
 
   void init();
   void reset();

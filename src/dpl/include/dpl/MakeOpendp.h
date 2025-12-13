@@ -3,16 +3,10 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace dpl {
-class Opendp;
-}
 
-namespace ord {
+void initOpendp(Tcl_Interp* tcl_interp);
 
-class OpenRoad;
-
-dpl::Opendp* makeOpendp();
-void initOpendp(OpenRoad* openroad);
-void deleteOpendp(dpl::Opendp* opendp);
-
-}  // namespace ord
+}  // namespace dpl

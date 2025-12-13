@@ -3,9 +3,7 @@
 
 #pragma once
 
-#include <boost/functional/hash.hpp>
-#include <boost/unordered/unordered_map.hpp>
-#include <boost/unordered/unordered_set.hpp>
+#include <cstddef>
 #include <deque>
 #include <functional>
 #include <set>
@@ -17,6 +15,12 @@
 #include "CtsOptions.h"
 #include "TechChar.h"
 #include "Util.h"
+#include "boost/functional/hash.hpp"
+#include "boost/unordered/unordered_map.hpp"
+#include "boost/unordered/unordered_set.hpp"
+#include "odb/db.h"
+#include "odb/geom.h"
+#include "utl/Logger.h"
 
 namespace utl {
 class Logger;
@@ -79,6 +83,7 @@ class TreeBuilder
   void addChild(TreeBuilder* child) { children_.emplace_back(child); }
   std::vector<TreeBuilder*> getChildren() const { return children_; }
   TreeBuilder* getParent() const { return parent_; }
+  bool isLeafTree();
   unsigned getTreeBufLevels() const { return treeBufLevels_; }
   void addFirstLevelSinkDriver(ClockInst* inst)
   {
@@ -157,10 +162,10 @@ class TreeBuilder
   Point<double> legalizeOneBuffer(Point<double> bufferLoc,
                                   const std::string& bufferName);
 
-  inline void addCandidatePoint(double x,
-                                double y,
-                                Point<double>& point,
-                                std::vector<Point<double>>& candidates)
+  void addCandidatePoint(double x,
+                         double y,
+                         Point<double>& point,
+                         std::vector<Point<double>>& candidates)
   {
     point.setX(x);
     point.setY(y);
@@ -174,15 +179,15 @@ class TreeBuilder
   void commitLoc(const Point<double>& bufferLoc);
   void uncommitLoc(const Point<double>& bufferLoc);
   void commitMoveLoc(const Point<double>& oldLoc, const Point<double>& newLoc);
-  inline bool sinkHasInsertionDelay(const Point<double>& sink)
+  bool sinkHasInsertionDelay(const Point<double>& sink)
   {
     return (insertionDelays_.find(sink) != insertionDelays_.end());
   }
-  inline void setSinkInsertionDelay(const Point<double>& sink, double insDelay)
+  void setSinkInsertionDelay(const Point<double>& sink, double insDelay)
   {
     insertionDelays_[sink] = insDelay;
   }
-  inline double getSinkInsertionDelay(const Point<double>& sink)
+  double getSinkInsertionDelay(const Point<double>& sink)
   {
     auto it = insertionDelays_.find(sink);
     if (it != insertionDelays_.end()) {
@@ -194,7 +199,7 @@ class TreeBuilder
     }
     return 0.0;
   }
-  inline double computeDist(const Point<double>& x, const Point<double>& y)
+  double computeDist(const Point<double>& x, const Point<double>& y)
   {
     return x.computeDist(y) + getSinkInsertionDelay(x)
            + getSinkInsertionDelay(y);
@@ -216,8 +221,8 @@ class TreeBuilder
 
   float getAveSinkArrival() const { return aveArrival_; }
   void setAveSinkArrival(float arrival) { aveArrival_ = arrival; }
-  float getTopBufferDelay() const { return topBufferDelay_; }
-  void setTopBufferDelay(float delay) { topBufferDelay_ = delay; }
+  float getNDummies() const { return nDummies_; }
+  void setNDummies(float nDummies) { nDummies_ = nDummies; }
   odb::dbInst* getTopBuffer() const { return topBuffer_; }
   void setTopBuffer(odb::dbInst* inst) { topBuffer_ = inst; }
   std::string getTopBufferName() const { return topBufferName_; }
@@ -253,7 +258,7 @@ class TreeBuilder
       insertionDelays_;
   TreeType type_ = TreeType::RegularTree;
   float aveArrival_ = 0.0;
-  float topBufferDelay_ = 0.0;
+  int nDummies_ = 0;
   odb::dbInst* topBuffer_ = nullptr;
   std::string topBufferName_;
   odb::dbNet* drivingNet_ = nullptr;

@@ -5,20 +5,29 @@
 
 #include <unistd.h>
 
+#include <QColor>
 #include <QCoreApplication>
 #include <QHBoxLayout>
 #include <QKeyEvent>
+#include <QPushButton>
+#include <QSettings>
 #include <QThread>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QWidget>
 #include <cerrno>
 #include <functional>
+#include <memory>
 #include <mutex>
+#include <stdexcept>
+#include <string>
 
 #include "gui/gui.h"
 #include "spdlog/formatter.h"
 #include "spdlog/sinks/base_sink.h"
+#include "tcl.h"
 #include "tclCmdInputWidget.h"
+#include "utl/Logger.h"
 
 namespace gui {
 
@@ -76,6 +85,11 @@ ScriptWidget::ScriptWidget(QWidget* parent)
           this,
           &ScriptWidget::addResultToOutput);
   connect(input_,
+          &TclCmdInputWidget::addTextToOutput,
+          this,
+          &ScriptWidget::addTextToOutput,
+          Qt::QueuedConnection);
+  connect(input_,
           &TclCmdInputWidget::commandFinishedExecuting,
           this,
           &ScriptWidget::resetPauser);
@@ -116,9 +130,8 @@ void ScriptWidget::flushReportBufferToOutput()
   if (!guard.owns_lock()) {
     // failed to aquire lock
     // return and this will be called at some point later
-    QTimer::singleShot(report_display_interval,
-                       this,
-                       &ScriptWidget::flushReportBufferToOutput);
+    QTimer::singleShot(
+        kReportDisplayInterval, this, &ScriptWidget::flushReportBufferToOutput);
     return;
   }
   if (report_buffer_.isEmpty()) {
@@ -197,7 +210,7 @@ void ScriptWidget::addResultToOutput(const QString& result, bool is_ok)
   } else {
     try {
       auto msg = result.toStdString();
-      if (msg.find(TclCmdInputWidget::exit_string) == std::string::npos) {
+      if (msg.find(TclCmdInputWidget::kExitString) == std::string::npos) {
         logger_->error(utl::GUI, 70, msg);
       }
     } catch (const std::runtime_error& e) {
@@ -215,7 +228,7 @@ void ScriptWidget::addLogToOutput(const QString& text, const QColor& color)
 
 void ScriptWidget::startReportTimer()
 {
-  report_timer_->start(report_display_interval);
+  report_timer_->start(kReportDisplayInterval);
 }
 
 void ScriptWidget::addMsgToReportBuffer(const QString& text)

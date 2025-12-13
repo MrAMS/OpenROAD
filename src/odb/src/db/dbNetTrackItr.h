@@ -4,35 +4,33 @@
 // Generator Code Begin Header
 #pragma once
 
+#include "dbCore.h"
 #include "odb/dbIterator.h"
 #include "odb/odb.h"
 
 namespace odb {
 class _dbNetTrack;
 
-template <class T>
-class dbTable;
-
 class dbNetTrackItr : public dbIterator
 {
  public:
   dbNetTrackItr(dbTable<_dbNetTrack>* net_tracks_tbl)
   {
-    _net_tracks_tbl = net_tracks_tbl;
+    net_tracks_tbl_ = net_tracks_tbl;
   }
 
-  bool reversible() override;
-  bool orderReversed() override;
+  bool reversible() const override;
+  bool orderReversed() const override;
   void reverse(dbObject* parent) override;
-  uint sequential() override;
-  uint size(dbObject* parent) override;
-  uint begin(dbObject* parent) override;
-  uint end(dbObject* parent) override;
-  uint next(uint id, ...) override;
+  uint sequential() const override;
+  uint size(dbObject* parent) const override;
+  uint begin(dbObject* parent) const override;
+  uint end(dbObject* parent) const override;
+  uint next(uint id, ...) const override;
   dbObject* getObject(uint id, ...) override;
 
  private:
-  dbTable<_dbNetTrack>* _net_tracks_tbl;
+  dbTable<_dbNetTrack>* net_tracks_tbl_;
 };
 
 }  // namespace odb

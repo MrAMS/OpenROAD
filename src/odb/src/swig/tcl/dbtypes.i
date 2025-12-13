@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2019-2025, The OpenROAD Authors
 
+%import <std_vector.i>
+
 %template(vector_str) std::vector<std::string>;
 
 // DB specital types
@@ -19,6 +21,17 @@
     Tcl_Obj *y = Tcl_NewIntObj($1.getY());
     Tcl_ListObjAppendElement(interp, list, x);
     Tcl_ListObjAppendElement(interp, list, y);
+    Tcl_SetObjResult(interp, list);
+}
+
+%typemap(out) odb::Point3D, Point3D {
+    Tcl_Obj *list = Tcl_NewListObj(0, nullptr);
+    Tcl_Obj *x = Tcl_NewIntObj($1.x());
+    Tcl_Obj *y = Tcl_NewIntObj($1.y());
+    Tcl_Obj *z = Tcl_NewIntObj($1.z());
+    Tcl_ListObjAppendElement(interp, list, x);
+    Tcl_ListObjAppendElement(interp, list, y);
+    Tcl_ListObjAppendElement(interp, list, z);
     Tcl_SetObjResult(interp, list);
 }
 

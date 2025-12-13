@@ -3,40 +3,23 @@
 
 #include "dst/MakeDistributed.h"
 
-#include <tcl.h>
-
-#include "dst/Distributed.h"
-#include "ord/OpenRoad.hh"
+#include "tcl.h"
 #include "utl/decode.h"
-
-namespace dst {
-// Tcl files encoded into strings.
-extern const char* dst_tcl_inits[];
-}  // namespace dst
 
 extern "C" {
 extern int Dst_Init(Tcl_Interp* interp);
 }
 
-namespace ord {
+namespace dst {
 
-dst::Distributed* makeDistributed()
-{
-  return new dst::Distributed();
-}
+// Tcl files encoded into strings.
+extern const char* dst_tcl_inits[];
 
-void deleteDistributed(dst::Distributed* dstr)
-{
-  delete dstr;
-}
-
-void initDistributed(OpenRoad* openroad)
+void initDistributed(Tcl_Interp* tcl_interp)
 {
   // Define swig TCL commands.
-  auto tcl_interp = openroad->tclInterp();
   Dst_Init(tcl_interp);
   utl::evalTclInit(tcl_interp, dst::dst_tcl_inits);
-  openroad->getDistributed()->init(openroad->getLogger());
 }
 
-}  // namespace ord
+}  // namespace dst

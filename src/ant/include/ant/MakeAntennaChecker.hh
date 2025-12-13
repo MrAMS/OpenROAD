@@ -3,18 +3,10 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace ant {
-class AntennaChecker;
-}
 
-namespace ord {
+void initAntennaChecker(Tcl_Interp* tcl_interp);
 
-class OpenRoad;
-
-ant::AntennaChecker* makeAntennaChecker();
-
-void deleteAntennaChecker(ant::AntennaChecker* antennachecker);
-
-void initAntennaChecker(OpenRoad* openroad);
-
-}  // namespace ord
+}  // namespace ant

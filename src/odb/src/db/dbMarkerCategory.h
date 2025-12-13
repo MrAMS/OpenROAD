@@ -8,12 +8,13 @@
 
 #include "dbCore.h"
 #include "dbHashTable.h"
+#include "odb/dbId.h"
 #include "odb/odb.h"
 // User Code Begin Includes
-#include <boost/property_tree/json_parser.hpp>
 #include <fstream>
 #include <set>
-#include <string>
+
+#include "boost/property_tree/json_parser.hpp"
 // User Code End Includes
 
 namespace odb {
@@ -21,11 +22,10 @@ class dbIStream;
 class dbOStream;
 class _dbDatabase;
 class _dbMarker;
-template <class T>
-class dbTable;
 class _dbMarkerCategory;
 // User Code Begin Classes
 class _dbBlock;
+class _dbChip;
 // User Code End Classes
 
 class _dbMarkerCategory : public _dbObject
@@ -49,6 +49,7 @@ class _dbMarkerCategory : public _dbObject
   bool hasMaxMarkerLimit() const;
 
   _dbBlock* getBlock() const;
+  _dbChip* getChip() const;
   void populatePTree(PropertyTree& tree) const;
   void fromPTree(const PropertyTree& tree);
   static void writeJSON(std::ofstream& report,
@@ -56,14 +57,14 @@ class _dbMarkerCategory : public _dbObject
   void writeTR(std::ofstream& report) const;
   // User Code End Methods
 
-  char* _name;
+  char* name_;
   std::string description_;
   std::string source_;
   int max_markers_;
   dbTable<_dbMarker>* marker_tbl_;
   dbTable<_dbMarkerCategory>* categories_tbl_;
   dbHashTable<_dbMarkerCategory> categories_hash_;
-  dbId<_dbMarkerCategory> _next_entry;
+  dbId<_dbMarkerCategory> next_entry_;
 };
 dbIStream& operator>>(dbIStream& stream, _dbMarkerCategory& obj);
 dbOStream& operator<<(dbOStream& stream, const _dbMarkerCategory& obj);

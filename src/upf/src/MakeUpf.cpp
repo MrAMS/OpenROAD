@@ -3,31 +3,22 @@
 
 #include "upf/MakeUpf.h"
 
-#include <tcl.h>
-
-#include "ord/OpenRoad.hh"
+#include "tcl.h"
 #include "utl/decode.h"
-
-namespace sta {
 
 extern "C" {
 extern int Upf_Init(Tcl_Interp* interp);
 }
-}  // namespace sta
 
 namespace upf {
 extern const char* upf_tcl_inits[];
-}
 
-namespace ord {
-
-void initUpf(OpenRoad* openroad)
+void initUpf(Tcl_Interp* tcl_interp)
 {
-  Tcl_Interp* interp = openroad->tclInterp();
   // Define swig TCL commands.
-  sta::Upf_Init(interp);
+  Upf_Init(tcl_interp);
   // Eval encoded sta TCL sources.
-  utl::evalTclInit(interp, upf::upf_tcl_inits);
+  utl::evalTclInit(tcl_interp, upf::upf_tcl_inits);
 }
 
-}  // namespace ord
+}  // namespace upf

@@ -9,6 +9,7 @@
 namespace odb {
 
 class dbBlock;
+class dbChip;
 class dbDatabase;
 class dbLib;
 class dbTech;
@@ -26,7 +27,9 @@ class dbDatabaseObserver
   // Either pointer could be null
   virtual void postReadLef(odb::dbTech* tech, odb::dbLib* library) = 0;
   virtual void postReadDef(odb::dbBlock* block) = 0;
+  virtual void postReadFloorplanDef(odb::dbBlock*) {}
   virtual void postReadDb(odb::dbDatabase* db) = 0;
+  virtual void postRead3Dbx(odb::dbChip* chip) = 0;
 
   void setUnregisterObserver(std::function<void()> unregister_observer)
   {

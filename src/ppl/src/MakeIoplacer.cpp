@@ -3,39 +3,23 @@
 
 #include "ppl/MakeIoplacer.h"
 
-#include "ord/OpenRoad.hh"
-#include "ppl/IOPlacer.h"
+#include "tcl.h"
 #include "utl/decode.h"
-
-namespace ppl {
-// Tcl files encoded into strings.
-extern const char* ppl_tcl_inits[];
-}  // namespace ppl
 
 extern "C" {
 extern int Ppl_Init(Tcl_Interp* interp);
 }
 
-namespace ord {
+namespace ppl {
 
-ppl::IOPlacer* makeIoplacer()
-{
-  return new ppl::IOPlacer();
-}
+// Tcl files encoded into strings.
+extern const char* ppl_tcl_inits[];
 
-void deleteIoplacer(ppl::IOPlacer* ioplacer)
+void initIoplacer(Tcl_Interp* tcl_interp)
 {
-  delete ioplacer;
-}
-
-void initIoplacer(OpenRoad* openroad)
-{
-  Tcl_Interp* tcl_interp = openroad->tclInterp();
   // Define swig TCL commands.
   Ppl_Init(tcl_interp);
   utl::evalTclInit(tcl_interp, ppl::ppl_tcl_inits);
-
-  openroad->getIOPlacer()->init(openroad->getDb(), openroad->getLogger());
 }
 
-}  // namespace ord
+}  // namespace ppl

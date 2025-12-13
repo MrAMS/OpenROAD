@@ -5,19 +5,28 @@
 
 #include <lemon/list_graph.h>
 #include <lemon/network_simplex.h>
-#include <omp.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <limits>
-#include <random>
+#include <map>
+#include <memory>
+#include <set>
 #include <string>
+#include <tuple>
+#include <utility>
+#include <vector>
 
+#include "AbstractGraphics.h"
 #include "db_sta/dbNetwork.hh"
 #include "db_sta/dbSta.hh"
-#include "graphics.h"
+#include "odb/db.h"
 #include "odb/dbTransform.h"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
+#include "omp.h"
 #include "ortools/linear_solver/linear_solver.h"
 #include "ortools/sat/cp_model.h"
 #include "rsz/Resizer.hh"
@@ -31,13 +40,17 @@
 #include "sta/GraphDelayCalc.hh"
 #include "sta/InputDrive.hh"
 #include "sta/Liberty.hh"
+#include "sta/MinMax.hh"
 #include "sta/Parasitics.hh"
+#include "sta/Path.hh"
 #include "sta/PathAnalysisPt.hh"
 #include "sta/PathEnd.hh"
 #include "sta/PathExpanded.hh"
 #include "sta/PortDirection.hh"
+#include "sta/PowerClass.hh"
 #include "sta/Sdc.hh"
 #include "sta/Search.hh"
+#include "sta/SearchClass.hh"
 #include "sta/Sequential.hh"
 #include "sta/TimingArc.hh"
 #include "sta/Units.hh"
@@ -339,7 +352,6 @@ bool MBFF::IsClearPin(dbITerm* iterm)
 {
   dbInst* inst = iterm->getInst();
   const sta::Cell* cell = network_->dbToSta(inst->getMaster());
-  const sta::LibertyCell* lib_cell = getLibertyCell(cell);
   const sta::Pin* pin = network_->dbToSta(iterm);
   if (pin == nullptr) {
     return false;
@@ -348,11 +360,41 @@ bool MBFF::IsClearPin(dbITerm* iterm)
   if (lib_port == nullptr) {
     return false;
   }
+
+  const sta::LibertyCell* lib_cell = network_->libertyCell(cell);
+  if (lib_cell == nullptr) {
+    return false;
+  }
+
+  // Check the lib cell if the port is a clear.
   for (const sta::Sequential* seq : lib_cell->sequentials()) {
     if (seq->clear() && seq->clear()->hasPort(lib_port)) {
       return true;
     }
   }
+
+  // If it exists, check the test lib cell if the port is a clear.
+  const sta::LibertyCell* test_cell = lib_cell->testCell();
+  if (test_cell == nullptr) {
+    return false;
+  }
+
+  // Find the equivalent lib_port on the test cell by name.
+  //
+  // TODO: NA - Make retrieving the port on the lib cell possible without doing
+  // a name match each time
+  const sta::LibertyPort* test_lib_port
+      = test_cell->findLibertyPort(lib_port->name());
+  if (test_lib_port == nullptr) {
+    return false;
+  }
+
+  for (const sta::Sequential* seq : test_cell->sequentials()) {
+    if (seq->clear() && seq->clear()->hasPort(test_lib_port)) {
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -372,7 +414,6 @@ bool MBFF::IsPresetPin(dbITerm* iterm)
 {
   dbInst* inst = iterm->getInst();
   const sta::Cell* cell = network_->dbToSta(inst->getMaster());
-  const sta::LibertyCell* lib_cell = getLibertyCell(cell);
   const sta::Pin* pin = network_->dbToSta(iterm);
   if (pin == nullptr) {
     return false;
@@ -381,11 +422,41 @@ bool MBFF::IsPresetPin(dbITerm* iterm)
   if (lib_port == nullptr) {
     return false;
   }
+
+  const sta::LibertyCell* lib_cell = network_->libertyCell(cell);
+  if (lib_cell == nullptr) {
+    return false;
+  }
+
+  // Check the lib cell if the port is a preset.
   for (const sta::Sequential* seq : lib_cell->sequentials()) {
     if (seq->preset() && seq->preset()->hasPort(lib_port)) {
       return true;
     }
   }
+
+  // If it exists, check the test lib cell if the port is a preset.
+  const sta::LibertyCell* test_cell = lib_cell->testCell();
+  if (test_cell == nullptr) {
+    return false;
+  }
+
+  // Find the equivalent lib_port on the test cell by name.
+  //
+  // TODO: NA - Make retrieving the port on the lib cell possible without doing
+  // a name match each time
+  const sta::LibertyPort* test_lib_port
+      = test_cell->findLibertyPort(lib_port->name());
+  if (test_lib_port == nullptr) {
+    return false;
+  }
+
+  for (const sta::Sequential* seq : test_cell->sequentials()) {
+    if (seq->preset() && seq->preset()->hasPort(test_lib_port)) {
+      return true;
+    }
+  }
+
   return false;
 }
 
@@ -527,7 +598,7 @@ bool MBFF::IsValidTray(dbInst* tray)
                 == tray->getITerms().size();
 }
 
-PortName MBFF::PortType(const sta::LibertyPort* lib_port, dbInst* inst)
+MBFF::PortName MBFF::PortType(const sta::LibertyPort* lib_port, dbInst* inst)
 {
   dbMTerm* mterm = network_->staToDb(lib_port);
 
@@ -637,9 +708,9 @@ MBFF::Mask MBFF::GetArrayMask(dbInst* inst, const bool isTray)
 
   const sta::Cell* cell = network_->dbToSta(inst->getMaster());
   const sta::LibertyCell* lib_cell = getLibertyCell(cell);
-  for (const sta::Sequential* seq : lib_cell->sequentials()) {
-    ret.func_idx = GetMatchingFunc(seq->data(), inst, isTray);
-    break;
+  const auto& seqs = lib_cell->sequentials();
+  if (!seqs.empty()) {
+    ret.func_idx = GetMatchingFunc(seqs.front()->data(), inst, isTray);
   }
 
   ret.is_scan_cell = IsScanCell(inst);
@@ -682,7 +753,7 @@ MBFF::DataToOutputsMap MBFF::GetPinMapping(dbInst* tray)
     if (port->isBus() || port->isBundle()) {
       continue;
     }
-    if (port->isClock()) {
+    if (port->isPwrGnd() || port->isClock()) {
       continue;
     }
     if (port->direction()->isInput()) {
@@ -828,9 +899,13 @@ void MBFF::ModifyPinConnections(const std::vector<Flop>& flops,
         }
         if (IsSupplyPin(iterm)) {
           if (iterm->getSigType() == odb::dbSigType::GROUND) {
-            ground->connect(net);
+            if (ground) {
+              ground->connect(net);
+            }
           } else {
-            power->connect(net);
+            if (power) {
+              power->connect(net);
+            }
           }
         }
         if (IsClockPin(iterm)) {
@@ -975,10 +1050,10 @@ double MBFF::RunILP(const std::vector<Flop>& flops,
   const int inf = std::numeric_limits<int>::max();
 
   // cand_tray[i] = tray indices that have a slot which contains flop i
-  std::vector<int> cand_tray[num_flops];
+  std::vector<std::vector<int>> cand_tray(num_flops);
 
   // cand_slot[i] = slot indices that are mapped to flop i
-  std::vector<int> cand_slot[num_flops];
+  std::vector<std::vector<int>> cand_slot(num_flops);
 
   for (int i = 0; i < num_trays; i++) {
     for (int j = 0; j < trays[i].slots.size(); j++) {
@@ -990,11 +1065,11 @@ double MBFF::RunILP(const std::vector<Flop>& flops,
   }
 
   // has a flop been mapped to a slot?
-  std::vector<sat::BoolVar> mapped[num_flops];
+  std::vector<std::vector<sat::BoolVar>> mapped(num_flops);
 
   // displacement from flop to slot
-  std::vector<sat::IntVar> disp_x[num_flops];
-  std::vector<sat::IntVar> disp_y[num_flops];
+  std::vector<std::vector<sat::IntVar>> disp_x(num_flops);
+  std::vector<std::vector<sat::IntVar>> disp_y(num_flops);
 
   /*
   NOTE: CP-SAT constraints only work with INTEGERS
@@ -1510,7 +1585,7 @@ void MBFF::RunMultistart(
     trays[0][i] = std::move(one_bit);
   }
 
-  std::vector<float> res[num_sizes_];
+  std::vector<std::vector<float>> res(num_sizes_);
   std::vector<std::pair<int, int>> ind;
 
   for (int i = 1; i < num_sizes_; i++) {
@@ -1773,6 +1848,10 @@ float MBFF::GetKSilh(const std::vector<std::vector<Flop>>& clusters,
       tot += ((b_j - a_j) / std::max(a_j, b_j));
     }
   }
+
+  if (num_flops == 0) {
+    return 0.0f;
+  }
   return tot / num_flops;
 }
 
@@ -1817,7 +1896,7 @@ void MBFF::KMeansDecomp(const std::vector<Flop>& flops,
     }
   }
 
-  std::vector<std::vector<Flop>> tmp_clusters[multistart_];
+  std::vector<std::vector<std::vector<Flop>>> tmp_clusters(multistart_);
   std::vector<float> tmp_costs(multistart_);
 
 #pragma omp parallel for
@@ -1930,7 +2009,7 @@ float MBFF::GetPairDisplacements()
 void MBFF::displayFlopClusters(const char* stage,
                                std::vector<std::vector<Flop>>& clusters)
 {
-  if (graphics_) {
+  if (graphics_ && graphics_->enabled()) {
     for (const std::vector<Flop>& cluster : clusters) {
       graphics_->status(fmt::format("{} size: {}", stage, cluster.size()));
       std::vector<odb::dbInst*> inst_cluster;
@@ -1958,7 +2037,8 @@ float MBFF::RunClustering(const std::vector<Flop>& flops,
   // all_start_trays[t][i][j]: start trays of size 2^i, multistart = j for
   // pointset[t]
   const int num_pointsets = pointsets.size();
-  std::vector<std::vector<std::vector<Tray>>> all_start_trays[num_pointsets];
+  std::vector<std::vector<std::vector<std::vector<Tray>>>> all_start_trays(
+      num_pointsets);
   for (int t = 0; t < num_pointsets; t++) {
     all_start_trays[t].resize(num_sizes_);
     for (int i = 1; i < num_sizes_; i++) {
@@ -1979,8 +2059,8 @@ float MBFF::RunClustering(const std::vector<Flop>& flops,
   }
 
   float ans = 0;
-  std::vector<std::pair<int, int>> all_mappings[num_pointsets];
-  std::vector<Tray> all_final_trays[num_pointsets];
+  std::vector<std::vector<std::pair<int, int>>> all_mappings(num_pointsets);
+  std::vector<std::vector<Tray>> all_final_trays(num_pointsets);
 
 #pragma omp parallel for num_threads(num_threads_)
   for (int t = 0; t < num_pointsets; t++) {
@@ -2034,8 +2114,8 @@ float MBFF::RunClustering(const std::vector<Flop>& flops,
         pointsets[t], all_final_trays[t], all_mappings[t], array_mask);
   }
 
-  if (graphics_) {
-    Graphics::LineSegs segs;
+  if (graphics_ && graphics_->enabled()) {
+    AbstractGraphics::LineSegs segs;
     for (int t = 0; t < num_pointsets; t++) {
       const int num_flops = pointsets[t].size();
       for (int i = 0; i < num_flops; i++) {
@@ -2252,6 +2332,8 @@ void MBFF::ReadLibs()
       dbInst* tmp_tray = dbInst::create(block_, master, tray_name.c_str());
 
       if (!IsValidTray(tmp_tray)) {
+        dbInst::destroy(tmp_tray);
+        --test_idx_;
         continue;
       }
 
@@ -2401,6 +2483,7 @@ void MBFF::ReadPaths()
                                                    20,
                                                    num_paths_,
                                                    true,
+                                                   true,
                                                    -sta::INF,
                                                    sta::INF,
                                                    true,
@@ -2453,12 +2536,14 @@ MBFF::MBFF(odb::dbDatabase* db,
            const int threads,
            const int multistart,
            const int num_paths,
-           const bool debug_graphics)
+           const bool debug_graphics,
+           std::unique_ptr<AbstractGraphics> graphics)
     : db_(db),
       block_(db_->getChip()->getBlock()),
       sta_(sta),
       network_(sta_->getDbNetwork()),
       corner_(sta_->cmdCorner()),
+      graphics_(std::move(graphics)),
       log_(log),
       resizer_(resizer),
       num_threads_(threads),
@@ -2470,9 +2555,7 @@ MBFF::MBFF(odb::dbDatabase* db,
       single_bit_power_(0.0),
       test_idx_(-1)
 {
-  if (debug_graphics && Graphics::guiActive()) {
-    graphics_ = std::make_unique<Graphics>(log_);
-  }
+  graphics_->setDebugOn(debug_graphics);
 }
 
 MBFF::~MBFF() = default;

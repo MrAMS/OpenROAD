@@ -3,12 +3,19 @@
 
 #include "network.h"
 
+#include <algorithm>
+#include <cstddef>
+#include <limits>
+#include <map>
 #include <memory>
+#include <utility>
+#include <vector>
 
 #include "PlacementDRC.h"
 #include "infrastructure/Grid.h"
 #include "infrastructure/Objects.h"
 #include "odb/db.h"
+#include "odb/dbTypes.h"
 namespace dpl {
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -30,6 +37,16 @@ Node* Network::getNode(odb::dbBTerm* term)
     return nullptr;
   }
   return nodes_[it->second].get();
+}
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+Edge* Network::getEdge(odb::dbNet* net) const
+{
+  auto it = net_to_edge_idx_.find(net);
+  if (it == net_to_edge_idx_.end()) {
+    return nullptr;
+  }
+  return edges_[it->second].get();
 }
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -65,6 +82,22 @@ Pin* Network::addPin(odb::dbITerm* term)
   upin->setPinWidth(DbuX{ww});
   upin->setPinLayer(0);  // Set to zero since not currently used.
   pins_.emplace_back(std::move(upin));
+
+  auto node = getNode(term->getInst());
+  for (auto pin : term->getMTerm()->getMPins()) {
+    for (auto box : pin->getGeometry()) {
+      auto layer = box->getTechLayer();
+      if (layer->getType() != odb::dbTechLayerType::Value::ROUTING) {
+        continue;
+      }
+      if (layer->getRoutingLevel() > 3) {
+        continue;
+      }
+      node->addUsedLayer(layer->getRoutingLevel());
+      node->addUsedLayer(layer->getRoutingLevel()
+                         + 1);  // for via access from above
+    }
+  }
   return ptr;
 }
 Pin* Network::addPin(odb::dbBTerm* term)
@@ -97,7 +130,7 @@ void Network::addEdge(odb::dbNet* net)
   ////////////////////////
   net_to_edge_idx_[net] = id;
   // Name of edge.
-  setEdgeName(id, net->getName().c_str());
+  setEdgeName(id, net->getName());
 
   for (auto iterm : net->getITerms()) {
     if (!iterm->getInst()->getMaster()->isCoreAutoPlaceable()) {
@@ -126,19 +159,19 @@ namespace {
  * child segments. It first sorts the segs vector and merges intersecting ones.
  * Then it calculates the difference and returns a list of segments.
  */
-std::vector<Rect> difference(const Rect& parent_segment,
-                             const std::vector<Rect>& segs)
+std::vector<odb::Rect> difference(const odb::Rect& parent_segment,
+                                  const std::vector<odb::Rect>& segs)
 {
   if (segs.empty()) {
     return {parent_segment};
   }
   bool is_horizontal = parent_segment.yMin() == parent_segment.yMax();
-  std::vector<Rect> sorted_segs = segs;
+  std::vector<odb::Rect> sorted_segs = segs;
   // Sort segments by start coordinate
   std::sort(
       sorted_segs.begin(),
       sorted_segs.end(),
-      [is_horizontal](const Rect& a, const Rect& b) {
+      [is_horizontal](const odb::Rect& a, const odb::Rect& b) {
         return (is_horizontal ? a.xMin() < b.xMin() : a.yMin() < b.yMin());
       });
   // Merge overlapping segments
@@ -157,8 +190,8 @@ std::vector<Rect> difference(const Rect& parent_segment,
       = is_horizontal ? parent_segment.xMin() : parent_segment.yMin();
   const int end = is_horizontal ? parent_segment.xMax() : parent_segment.yMax();
   int current_pos = start;
-  std::vector<Rect> result;
-  for (const Rect& seg : sorted_segs) {
+  std::vector<odb::Rect> result;
+  for (const odb::Rect& seg : sorted_segs) {
     int seg_start = is_horizontal ? seg.xMin() : seg.yMin();
     int seg_end = is_horizontal ? seg.xMax() : seg.yMax();
     if (seg_start > current_pos) {
@@ -190,10 +223,10 @@ std::vector<Rect> difference(const Rect& parent_segment,
   return result;
 }
 
-Rect getBoundarySegment(const Rect& bbox,
-                        const odb::dbMasterEdgeType::EdgeDir dir)
+odb::Rect getBoundarySegment(const odb::Rect& bbox,
+                             const odb::dbMasterEdgeType::EdgeDir dir)
 {
-  Rect segment(bbox);
+  odb::Rect segment(bbox);
   switch (dir) {
     case odb::dbMasterEdgeType::RIGHT:
       segment.set_xlo(bbox.xMax());
@@ -265,7 +298,8 @@ Master* Network::addMaster(odb::dbMaster* db_master,
   const int id = masters_.size();
   masters_.emplace_back(std::move(umaster));
   master_to_idx_[db_master] = id;
-  Rect bbox;
+  master->setDbMaster(db_master);
+  odb::Rect bbox;
   db_master->getPlacementBoundary(bbox);
   master->setBBox(bbox);
   master->setMultiRow(grid->isMultiHeight(db_master));
@@ -280,11 +314,11 @@ Master* Network::addMaster(odb::dbMaster* db_master,
       == odb::dbMasterType::CORE_SPACER) {  // Skip fillcells
     return master;
   }
-  std::map<odb::dbMasterEdgeType::EdgeDir, std::vector<Rect>> typed_segs;
+  std::map<odb::dbMasterEdgeType::EdgeDir, std::vector<odb::Rect>> typed_segs;
   int num_rows = grid->gridHeight(db_master).v;
   for (auto edge : db_master->getEdgeTypes()) {
     auto dir = edge->getEdgeDir();
-    Rect edge_rect = getBoundarySegment(bbox, dir);
+    odb::Rect edge_rect = getBoundarySegment(bbox, dir);
     if (dir == odb::dbMasterEdgeType::TOP
         || dir == odb::dbMasterEdgeType::BOTTOM) {
       if (edge->getRangeBegin() != -1) {
@@ -336,13 +370,12 @@ void Network::addNode(odb::dbInst* inst)
   Node ndi;
   const int id = nodes_.size();
   ndi.setId(id);
-  setNodeName(ndi.getId(), inst->getName().c_str());
   ndi.setDbInst(inst);
   ndi.setType(Node::CELL);
   auto master = getMaster(inst->getMaster());
   ndi.setMaster(master);
   ndi.setFixed(inst->isFixed());
-  ndi.setPlaced(inst->isFixed());
+  ndi.setPlaced(inst->isPlaced());
 
   ndi.setOrient(odb::dbOrientType::R0);
   ndi.setHeight(DbuY{(int) inst->getMaster()->getHeight()});
@@ -366,8 +399,7 @@ void Network::addNode(odb::dbBTerm* bterm)
   Node ndi;
   const int id = nodes_.size();
   ndi.setId(id);
-  setNodeName(ndi.getId(), bterm->getName().c_str());
-
+  ndi.setBTerm(bterm);
   // Fill in data.
   ndi.setType(Node::TERMINAL);
   ndi.setFixed(true);
@@ -413,7 +445,6 @@ void Network::addFillerNode(const DbuX left,
   ndi.setBottom(bottom);
   ndi.setLeft(left);
   nodes_.emplace_back(std::make_unique<Node>(ndi));
-  setNodeName(id, "FILLER_" + std::to_string(filler_cnt_++));
 }
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
@@ -425,14 +456,12 @@ void Network::clear()
   pins_.clear();
   blockages_.clear();
   edgeNames_.clear();
-  nodeNames_.clear();
   inst_to_node_idx_.clear();
   term_to_node_idx_.clear();
   master_to_idx_.clear();
   net_to_edge_idx_.clear();
   cells_cnt_ = 0;
   terminals_cnt_ = 0;
-  filler_cnt_ = 0;
 }
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////

@@ -38,6 +38,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "defiDefs.hpp"
+#include "defiKRDefs.hpp"
 #include "defrReader.hpp"
 
 BEGIN_DEF_PARSER_NAMESPACE
@@ -55,8 +57,9 @@ size_t defGZip_read(FILE* file, char* buf, size_t len)
  */
 defGZFile defGZipOpen(const char* gzipPath, const char* mode)
 {
-  if (!gzipPath)
+  if (!gzipPath) {
     return nullptr;
+  }
 
   defGZFile fptr = gzopen(gzipPath, mode);
 
@@ -87,8 +90,9 @@ void defrSetGZipReadFunction()
 
 defGZFile defrGZipOpen(const char* gzipPath, const char* mode)
 {
-  if (!gzipPath)
+  if (!gzipPath) {
     return nullptr;
+  }
 
   return gzopen(gzipPath, mode);
 }

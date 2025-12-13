@@ -4,54 +4,23 @@
 #include "object.h"
 
 #include <algorithm>
-#include <boost/random/uniform_int_distribution.hpp>
 #include <cmath>
+#include <iterator>
 #include <map>
 #include <memory>
+#include <random>
 #include <string>
 #include <utility>
 #include <vector>
 
-#include "util.h"
+#include "boost/random/uniform_int_distribution.hpp"
+#include "mpl-util.h"
+#include "odb/db.h"
+#include "odb/dbTypes.h"
 #include "utl/Logger.h"
 
 namespace mpl {
 using utl::MPL;
-
-///////////////////////////////////////////////////////////////////////
-// Basic utility functions
-
-std::string toString(const Boundary& pin_access)
-{
-  switch (pin_access) {
-    case L:
-      return std::string("L");
-    case T:
-      return std::string("T");
-    case R:
-      return std::string("R");
-    case B:
-      return std::string("B");
-    default:
-      return std::string("NONE");
-  }
-}
-
-Boundary opposite(const Boundary& pin_access)
-{
-  switch (pin_access) {
-    case L:
-      return R;
-    case T:
-      return B;
-    case R:
-      return L;
-    case B:
-      return T;
-    default:
-      return NONE;
-  }
-}
 
 ///////////////////////////////////////////////////////////////////////
 // Metrics Class
@@ -233,12 +202,24 @@ std::string Cluster::getClusterTypeString() const
 {
   std::string cluster_type;
 
+  if (is_io_bundle_) {
+    return "IO Bundle";
+  }
+
+  if (is_cluster_of_unconstrained_io_pins_) {
+    return "Unconstrained IOs";
+  }
+
   if (is_cluster_of_unplaced_io_pins_) {
-    return "Unplaced IO Pins";
+    return "Unplaced IOs";
   }
 
   if (is_io_pad_cluster_) {
     return "IO Pad";
+  }
+
+  if (is_fixed_macro_) {
+    return "Fixed Macro";
   }
 
   switch (type_) {
@@ -300,13 +281,14 @@ void Cluster::copyInstances(const Cluster& cluster)
   }
 }
 
-void Cluster::setAsClusterOfUnplacedIOPins(const std::pair<float, float>& pos,
-                                           const float width,
-                                           const float height,
-                                           const Boundary constraint_boundary)
+void Cluster::setAsClusterOfUnplacedIOPins(
+    const std::pair<float, float>& pos,
+    const float width,
+    const float height,
+    const bool is_cluster_of_unconstrained_io_pins)
 {
   is_cluster_of_unplaced_io_pins_ = true;
-  constraint_boundary_ = constraint_boundary;
+  is_cluster_of_unconstrained_io_pins_ = is_cluster_of_unconstrained_io_pins;
   soft_macro_ = std::make_unique<SoftMacro>(pos, name_, width, height, this);
 }
 
@@ -318,19 +300,41 @@ void Cluster::setAsIOPadCluster(const std::pair<float, float>& pos,
   soft_macro_ = std::make_unique<SoftMacro>(pos, name_, width, height, this);
 }
 
+void Cluster::setAsIOBundle(const Point& pos, float width, float height)
+{
+  is_io_bundle_ = true;
+  soft_macro_ = std::make_unique<SoftMacro>(pos, name_, width, height, this);
+}
+
+void Cluster::setAsFixedMacro(const HardMacro* hard_macro)
+{
+  is_fixed_macro_ = true;
+  soft_macro_ = std::make_unique<SoftMacro>(logger_, hard_macro);
+}
+
 bool Cluster::isIOCluster() const
 {
-  return is_cluster_of_unplaced_io_pins_ || is_io_pad_cluster_;
+  return is_cluster_of_unplaced_io_pins_ || is_io_pad_cluster_ || is_io_bundle_;
+}
+
+bool Cluster::isClusterOfUnconstrainedIOPins() const
+{
+  return is_cluster_of_unconstrained_io_pins_;
+}
+
+bool Cluster::isClusterOfUnplacedIOPins() const
+{
+  return is_cluster_of_unplaced_io_pins_;
 }
 
 void Cluster::setAsArrayOfInterconnectedMacros()
 {
-  is_array_of_interconnected_macros = true;
+  is_array_of_interconnected_macros_ = true;
 }
 
 bool Cluster::isArrayOfInterconnectedMacros() const
 {
-  return is_array_of_interconnected_macros;
+  return is_array_of_interconnected_macros_;
 }
 
 bool Cluster::isEmpty() const
@@ -374,6 +378,10 @@ int Cluster::getNumMacro() const
 
 float Cluster::getArea() const
 {
+  if (isFixedMacro()) {
+    return soft_macro_->getArea();
+  }
+
   return getStdCellArea() + getMacroArea();
 }
 
@@ -557,138 +565,22 @@ bool Cluster::attemptMerge(Cluster* incomer, bool& incomer_deleted)
 // Connection signature support
 void Cluster::initConnection()
 {
-  connection_map_.clear();
+  connections_map_.clear();
 }
 
-void Cluster::addConnection(int cluster_id, float weight)
+void Cluster::addConnection(Cluster* cluster, const float connection_weight)
 {
-  if (connection_map_.find(cluster_id) == connection_map_.end()) {
-    connection_map_[cluster_id] = weight;
-  } else {
-    connection_map_[cluster_id] += weight;
-  }
+  connections_map_[cluster->getId()] += connection_weight;
 }
 
-std::map<int, float> Cluster::getConnection() const
+void Cluster::removeConnection(int cluster_id)
 {
-  return connection_map_;
+  connections_map_.erase(cluster_id);
 }
 
-// The connection signature is based on connection topology
-// if the number of connnections between two clusters is larger than the
-// net_threshold we think the two clusters are connected, otherwise they are
-// disconnected.
-bool Cluster::isSameConnSignature(const Cluster& cluster, float net_threshold)
+const ConnectionsMap& Cluster::getConnectionsMap() const
 {
-  std::vector<int> neighbors;          // neighbors of current cluster
-  std::vector<int> cluster_neighbors;  // neighbors of the input cluster
-  for (auto& [cluster_id, weight] : connection_map_) {
-    if ((cluster_id != id_) && (cluster_id != cluster.id_)
-        && (weight >= net_threshold)) {
-      neighbors.push_back(cluster_id);
-    }
-  }
-
-  if (neighbors.empty()) {
-    return false;
-  }
-
-  for (auto& [cluster_id, weight] : cluster.connection_map_) {
-    if ((cluster_id != id_) && (cluster_id != cluster.id_)
-        && (weight >= net_threshold)) {
-      cluster_neighbors.push_back(cluster_id);
-    }
-  }
-
-  if (neighbors.size() != cluster_neighbors.size()) {
-    return false;
-  }
-  std::sort(neighbors.begin(), neighbors.end());
-  std::sort(cluster_neighbors.begin(), cluster_neighbors.end());
-  for (int i = 0; i < neighbors.size(); i++) {
-    if (neighbors[i] != cluster_neighbors[i]) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-// Directly connected macros should be grouped in an array of macros.
-// The number of connections must be greater than the threshold in order for
-// the macros to be considered part of the same array.
-bool Cluster::hasMacroConnectionWith(const Cluster& cluster,
-                                     float net_threshold)
-{
-  if (id_ != cluster.getId()) {
-    for (const auto& [cluster_id, num_of_conn] : connection_map_) {
-      if (cluster_id == cluster.getId() && num_of_conn > net_threshold) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-// Get closely-connected cluster if such cluster exists
-// For example, if a small cluster A is closely connected to a
-// well-formed cluster B, (there are also other well-formed clusters
-// C, D), A is only connected to B and A has no connection with C, D
-// Candidate clusters always need to be merged.
-// A non candidate cluster is a well-formed cluster.
-int Cluster::getCloseCluster(const std::vector<int>& candidate_clusters,
-                             float net_threshold)
-{
-  int closely_cluster = -1;
-  int num_closely_clusters = 0;
-  for (auto& [cluster_id, num_nets] : connection_map_) {
-    debugPrint(logger_,
-               MPL,
-               "multilevel_autoclustering",
-               2,
-               "cluster_id: {}, nets: {}",
-               cluster_id,
-               num_nets);
-    if (num_nets > net_threshold
-        && std::find(
-               candidate_clusters.begin(), candidate_clusters.end(), cluster_id)
-               == candidate_clusters.end()) {
-      num_closely_clusters++;
-      closely_cluster = cluster_id;
-    }
-  }
-
-  if (num_closely_clusters == 1) {
-    return closely_cluster;
-  }
-  return -1;
-}
-
-// Print Basic Information
-// Normally we call this after macro placement is done
-void Cluster::printBasicInformation(utl::Logger* logger) const
-{
-  std::string line = "\n";
-  line += std::string(80, '*') + "\n";
-  line += "[INFO] cluster_name :  " + name_ + "  ";
-  line += "cluster_id : " + std::to_string(id_) + "  \n";
-  line += "num_std_cell : " + std::to_string(getNumStdCell()) + "  ";
-  line += "num_macro : " + std::to_string(getNumMacro()) + "\n";
-  line += "width : " + std::to_string(getWidth()) + "  ";
-  line += "height : " + std::to_string(getHeight()) + "  ";
-  line += "location :  ( " + std::to_string((getLocation()).first) + " , ";
-  line += std::to_string((getLocation()).second) + " )\n";
-  for (const auto& hard_macro : hard_macros_) {
-    line += "\t macro_name : " + hard_macro->getName();
-    line += "\t width : " + std::to_string(hard_macro->getRealWidth());
-    line += "\t height : " + std::to_string(hard_macro->getRealHeight());
-    line += "\t lx : " + std::to_string(hard_macro->getRealX());
-    line += "\t ly : " + std::to_string(hard_macro->getRealY());
-    line += "\n";
-  }
-
-  logger->report(line);
+  return connections_map_;
 }
 
 // Macro Placement Support
@@ -764,6 +656,13 @@ HardMacro::HardMacro(odb::dbInst* inst, float halo_width, float halo_height)
   width_ = block_->dbuToMicrons(master->getWidth()) + 2 * halo_width;
   height_ = block_->dbuToMicrons(master->getHeight()) + 2 * halo_height;
 
+  if (inst_->isFixed()) {
+    const odb::Rect& box = inst->getBBox()->getBox();
+    x_ = block_->dbuToMicrons(box.xMin()) - halo_width_;
+    y_ = block_->dbuToMicrons(box.yMin()) - halo_height_;
+    fixed_ = true;
+  }
+
   // Set the position of virtual pins
   odb::Rect bbox;
   bbox.mergeInit();
@@ -813,9 +712,15 @@ bool HardMacro::isClusterOfUnplacedIOPins() const
   return cluster_->isClusterOfUnplacedIOPins();
 }
 
-Rect HardMacro::getBBox() const
+// Cluster support to identify if a fixed terminal correponds
+// to the cluster of unconstrained IO pins when running HardMacro SA.
+bool HardMacro::isClusterOfUnconstrainedIOPins() const
 {
-  return Rect(x_, y_, x_ + width_, y_ + height_);
+  if (!cluster_) {
+    return false;
+  }
+
+  return cluster_->isClusterOfUnconstrainedIOPins();
 }
 
 // Get Physical Information
@@ -910,19 +815,6 @@ odb::dbOrientType HardMacro::getOrientation() const
   return orientation_;
 }
 
-// We do not allow rotation of macros
-// This may violate the direction of metal layers
-void HardMacro::flip(bool flip_horizontal)
-{
-  if (flip_horizontal) {
-    orientation_ = orientation_.flipX();
-    pin_y_ = height_ - pin_y_;
-  } else {
-    orientation_ = orientation_.flipY();
-    pin_x_ = width_ - pin_x_;
-  }
-}
-
 // Interfaces with OpenDB
 odb::dbInst* HardMacro::getInst() const
 {
@@ -943,20 +835,29 @@ std::string HardMacro::getMasterName() const
 }
 
 ///////////////////////////////////////////////////////////////////////
-// SoftMacro Class
-// Create a SoftMacro with specified size
-// In this case, we think the cluster is a macro cluster with only one macro
-// SoftMacro : Hard Macro (or pin access blockage)
-SoftMacro::SoftMacro(float width, float height, const std::string& name)
+
+// Represent a "regular" cluster (Mixed, StdCell or Macro).
+SoftMacro::SoftMacro(Cluster* cluster)
 {
-  name_ = name;
-  width_ = width;
-  height_ = height;
-  area_ = width * height;
-  cluster_ = nullptr;
+  name_ = cluster->getName();
+  cluster_ = cluster;
 }
 
-// Create a SoftMacro representing a cluster of unplaced IOs or fixed terminals
+// Represent a blockage.
+SoftMacro::SoftMacro(const Rect& blockage, const std::string& name)
+{
+  name_ = name;
+  x_ = blockage.xMin();
+  y_ = blockage.yMin();
+  width_ = blockage.getWidth();
+  height_ = blockage.getHeight();
+  area_ = width_ * height_;
+  cluster_ = nullptr;
+  fixed_ = true;
+  is_blockage_ = true;
+}
+
+// Represent an IO cluster or fixed terminal.
 SoftMacro::SoftMacro(const std::pair<float, float>& location,
                      const std::string& name,
                      float width,
@@ -979,11 +880,35 @@ SoftMacro::SoftMacro(const std::pair<float, float>& location,
   fixed_ = true;
 }
 
-// create a SoftMacro from a cluster
-SoftMacro::SoftMacro(Cluster* cluster)
+// Represent a fixed macro.
+SoftMacro::SoftMacro(utl::Logger* logger,
+                     const HardMacro* hard_macro,
+                     const Point* offset)
 {
-  name_ = cluster->getName();
-  cluster_ = cluster;
+  if (!hard_macro->isFixed()) {
+    logger->error(
+        MPL,
+        37,
+        "Attempting to create fixed soft macro for unfixed hard macro {}.",
+        hard_macro->getName());
+  }
+
+  name_ = hard_macro->getName();
+
+  x_ = hard_macro->getX();
+  y_ = hard_macro->getY();
+
+  if (offset) {
+    x_ += offset->first;
+    y_ += offset->second;
+  }
+
+  width_ = hard_macro->getWidth();
+  height_ = hard_macro->getHeight();
+  area_ = width_ * height_;
+
+  cluster_ = hard_macro->getCluster();
+  fixed_ = true;
 }
 
 // name
@@ -1249,6 +1174,11 @@ void SoftMacro::resizeRandomly(
   height_ = area_ / width_;
 }
 
+bool SoftMacro::isBlockage() const
+{
+  return is_blockage_;
+}
+
 // Align Flag support
 void SoftMacro::setAlignFlag(bool flag)
 {
@@ -1293,6 +1223,8 @@ bool SoftMacro::isMixedCluster() const
   return (cluster_->getClusterType() == MixedCluster);
 }
 
+// Cluster support to identify if a fixed terminal correponds
+// to a cluster of unplaced IO pins when running SoftMacro SA.
 bool SoftMacro::isClusterOfUnplacedIOPins() const
 {
   if (!cluster_) {
@@ -1300,6 +1232,17 @@ bool SoftMacro::isClusterOfUnplacedIOPins() const
   }
 
   return cluster_->isClusterOfUnplacedIOPins();
+}
+
+// Cluster support to identify if a fixed terminal correponds
+// to the cluster of unconstrained IO pins when running SoftMacro SA.
+bool SoftMacro::isClusterOfUnconstrainedIOPins() const
+{
+  if (!cluster_) {
+    return false;
+  }
+
+  return cluster_->isClusterOfUnconstrainedIOPins();
 }
 
 void SoftMacro::setLocationF(float x, float y)
@@ -1310,9 +1253,33 @@ void SoftMacro::setLocationF(float x, float y)
 
 void SoftMacro::setShapeF(float width, float height)
 {
+  if (fixed_) {
+    return;
+  }
+
   width_ = width;
   height_ = height;
   area_ = width * height;
+}
+
+void Cluster::reportConnections() const
+{
+  logger_->report("{} ({}) Connections:", name_, id_);
+  logger_->report("\n  Cluster Id  |  Connection Weight  ");
+  logger_->report("------------------------------------");
+  for (const auto& [cluster_id, connections_weight] : connections_map_) {
+    logger_->report(" {:>12d} | {:>19.2f}", cluster_id, connections_weight);
+  }
+  logger_->report("");
+}
+
+float Cluster::allConnectionsWeight() const
+{
+  float all_weight = 0;
+  for (const auto& [cluster_id, connection_weight] : connections_map_) {
+    all_weight += connection_weight;
+  }
+  return all_weight;
 }
 
 }  // namespace mpl

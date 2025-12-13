@@ -5,6 +5,7 @@
 #pragma once
 
 #include "dbCore.h"
+#include "odb/dbId.h"
 #include "odb/geom.h"
 #include "odb/odb.h"
 
@@ -16,9 +17,9 @@ class _dbBox;
 
 struct dbPolygonFlags
 {
-  uint owner_type_ : 4;
-  uint layer_id_ : 9;
-  uint spare_bits_ : 19;
+  uint owner_type : 4;
+  uint layer_id : 9;
+  uint spare_bits : 19;
 };
 
 class _dbPolygon : public _dbObject

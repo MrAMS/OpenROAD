@@ -33,6 +33,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "defiKRDefs.hpp"
 #include "defrData.hpp"
 #include "defrSettings.hpp"
 
@@ -75,7 +76,7 @@ void defiError(int check, int msgNum, const char* mess, defrData* defData)
     defData = defContext.data;
   }
 
-  return defData->defiError(check, msgNum, mess);
+  defData->defiError(check, msgNum, mess);
 }
 
 const char* upperCase(const char* str, defrData* defData)

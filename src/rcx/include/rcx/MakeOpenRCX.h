@@ -3,18 +3,12 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace rcx {
+
 class Ext;
+
+void initOpenRCX(Tcl_Interp* tcl_interp);
+
 }  // namespace rcx
-
-namespace ord {
-
-class OpenRoad;
-
-rcx::Ext* makeOpenRCX();
-
-void deleteOpenRCX(rcx::Ext* extractor);
-
-void initOpenRCX(OpenRoad* openroad);
-
-}  // namespace ord

@@ -3,26 +3,29 @@
 
 #include "dpl/Opendp.h"
 
-#include <boost/property_tree/json_parser.hpp>
-#include <boost/property_tree/ptree.hpp>
+#include <algorithm>
 #include <cfloat>
 #include <cmath>
-#include <iostream>
-#include <limits>
-#include <map>
+#include <cstdint>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "PlacementDRC.h"
+#include "boost/geometry/geometry.hpp"
 #include "dpl/OptMirror.h"
 #include "graphics/DplObserver.h"
+#include "infrastructure/Coordinates.h"
+#include "infrastructure/DecapObjects.h"
 #include "infrastructure/Grid.h"
 #include "infrastructure/Objects.h"
 #include "infrastructure/Padding.h"
 #include "infrastructure/network.h"
+#include "odb/db.h"
 #include "odb/util.h"
+#include "util/journal.h"
 #include "utl/Logger.h"
 
 namespace dpl {
@@ -32,6 +35,7 @@ using std::string;
 
 using utl::DPL;
 
+using odb::dbInst;
 using odb::Rect;
 
 ////////////////////////////////////////////////////////////////
@@ -43,18 +47,10 @@ bool Opendp::isMultiRow(const Node* cell) const
 
 ////////////////////////////////////////////////////////////////
 
-Opendp::Opendp()
+Opendp::Opendp(odb::dbDatabase* db, Logger* logger) : logger_(logger), db_(db)
 {
   dummy_cell_ = std::make_unique<Node>();
   dummy_cell_->setPlaced(true);
-}
-
-Opendp::~Opendp() = default;
-
-void Opendp::init(dbDatabase* db, Logger* logger)
-{
-  db_ = db;
-  logger_ = logger;
   padding_ = std::make_shared<Padding>();
   grid_ = std::make_unique<Grid>();
   grid_->init(logger);
@@ -62,17 +58,19 @@ void Opendp::init(dbDatabase* db, Logger* logger)
   arch_ = std::make_unique<Architecture>();
 }
 
+Opendp::~Opendp() = default;
+
 void Opendp::setPaddingGlobal(const int left, const int right)
 {
   padding_->setPaddingGlobal(GridX{left}, GridX{right});
 }
 
-void Opendp::setPadding(dbInst* inst, const int left, const int right)
+void Opendp::setPadding(odb::dbInst* inst, const int left, const int right)
 {
   padding_->setPadding(inst, GridX{left}, GridX{right});
 }
 
-void Opendp::setPadding(dbMaster* master, const int left, const int right)
+void Opendp::setPadding(odb::dbMaster* master, const int left, const int right)
 {
   padding_->setPadding(master, GridX{left}, GridX{right});
 }
@@ -82,12 +80,27 @@ void Opendp::setDebug(std::unique_ptr<DplObserver>& observer)
   debug_observer_ = std::move(observer);
 }
 
+void Opendp::setJournal(Journal* journal)
+{
+  journal_ = journal;
+}
+
+Journal* Opendp::getJournal() const
+{
+  return journal_;
+}
+
 void Opendp::detailedPlacement(const int max_displacement_x,
                                const int max_displacement_y,
                                const std::string& report_file_name)
 {
   importDb();
   adjustNodesOrient();
+  for (const auto& node : network_->getNodes()) {
+    if (node->getType() == Node::CELL && !node->isFixed()) {
+      node->setPlaced(false);
+    }
+  }
 
   if (have_fillers_) {
     logger_->warn(DPL, 37, "Use remove_fillers before detailed placement.");
@@ -117,7 +130,7 @@ void Opendp::detailedPlacement(const int max_displacement_x,
       logger_->info(DPL, 35, " {}", cell->name());
     }
 
-    saveFailures({}, {}, {}, {}, {}, {}, placement_failures_, {});
+    saveFailures({}, {}, {}, {}, {}, {}, {}, placement_failures_, {}, {});
     if (!report_file_name.empty()) {
       writeJsonReport(report_file_name);
     }
@@ -129,7 +142,7 @@ void Opendp::updateDbInstLocations()
 {
   for (auto& cell : network_->getNodes()) {
     if (!cell->isFixed() && cell->isStdCell()) {
-      dbInst* db_inst_ = cell->getDbInst();
+      odb::dbInst* db_inst_ = cell->getDbInst();
       // Only move the instance if necessary to avoid triggering callbacks.
       if (db_inst_->getOrient() != cell->getOrient()) {
         db_inst_->setOrient(cell->getOrient());
@@ -225,12 +238,12 @@ int Opendp::padGlobalRight() const
   return padding_->padGlobalRight().v;
 }
 
-int Opendp::padLeft(dbInst* inst) const
+int Opendp::padLeft(odb::dbInst* inst) const
 {
   return padding_->padLeft(inst).v;
 }
 
-int Opendp::padRight(dbInst* inst) const
+int Opendp::padRight(odb::dbInst* inst) const
 {
   return padding_->padRight(inst).v;
 }
@@ -258,8 +271,13 @@ void Opendp::setFixedGridCells()
 {
   for (auto& cell : network_->getNodes()) {
     if (cell->getType() == Node::CELL && cell->isFixed()) {
-      grid_->visitCellPixels(
-          *cell, true, [&](Pixel* pixel) { setGridCell(*cell, pixel); });
+      grid_->visitCellPixels(*cell, true, [&](Pixel* pixel, bool padded) {
+        if (padded) {
+          pixel->padding_reserved_by = cell.get();
+        } else {
+          setGridCell(*cell, pixel);
+        }
+      });
     }
   }
 }
@@ -339,7 +357,7 @@ void Opendp::groupInitPixels2()
   }
 }
 
-dbInst* Opendp::getAdjacentInstance(dbInst* inst, bool left) const
+odb::dbInst* Opendp::getAdjacentInstance(odb::dbInst* inst, bool left) const
 {
   const Rect inst_rect = inst->getBBox()->getBox();
   DbuX x_dbu = left ? DbuX{inst_rect.xMin() - 1} : DbuX{inst_rect.xMax() + 1};
@@ -350,7 +368,7 @@ dbInst* Opendp::getAdjacentInstance(dbInst* inst, bool left) const
 
   Pixel* pixel = grid_->gridPixel(x, y);
 
-  dbInst* adjacent_inst = nullptr;
+  odb::dbInst* adjacent_inst = nullptr;
 
   // do not return macros, endcaps and tapcells
   if (pixel != nullptr && pixel->cell && pixel->cell->getDbInst()->isCore()) {
@@ -364,9 +382,9 @@ std::vector<dbInst*> Opendp::getAdjacentInstancesCluster(dbInst* inst) const
 {
   const bool left = true;
   const bool right = false;
-  std::vector<dbInst*> adj_inst_cluster;
+  std::vector<odb::dbInst*> adj_inst_cluster;
 
-  dbInst* left_inst = getAdjacentInstance(inst, left);
+  odb::dbInst* left_inst = getAdjacentInstance(inst, left);
   while (left_inst != nullptr) {
     adj_inst_cluster.push_back(left_inst);
     // the right instance can be ignored, since it was added in the line above
@@ -376,7 +394,7 @@ std::vector<dbInst*> Opendp::getAdjacentInstancesCluster(dbInst* inst) const
   std::reverse(adj_inst_cluster.begin(), adj_inst_cluster.end());
   adj_inst_cluster.push_back(inst);
 
-  dbInst* right_inst = getAdjacentInstance(inst, right);
+  odb::dbInst* right_inst = getAdjacentInstance(inst, right);
   while (right_inst != nullptr) {
     adj_inst_cluster.push_back(right_inst);
     // the left instance can be ignored, since it was added in the line above

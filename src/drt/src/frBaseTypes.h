@@ -3,18 +3,20 @@
 
 #pragma once
 
-#include <boost/geometry/geometries/box.hpp>
-#include <boost/geometry/geometries/point_xy.hpp>
-#include <boost/geometry/geometries/segment.hpp>
-#include <boost/geometry/strategies/strategies.hpp>
-#include <boost/serialization/base_object.hpp>
 #include <cstdint>
 #include <list>
 #include <map>
+#include <ostream>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "boost/geometry/geometries/box.hpp"
+#include "boost/geometry/geometries/point_xy.hpp"
+#include "boost/geometry/geometries/segment.hpp"
+#include "boost/geometry/geometry.hpp"
+#include "boost/geometry/strategies/strategies.hpp"
+#include "boost/serialization/base_object.hpp"
 #include "odb/dbTypes.h"
 #include "odb/geom.h"
 #include "utl/Logger.h"
@@ -24,7 +26,6 @@ class access;
 }
 
 namespace drt {
-using Logger = utl::Logger;
 const utl::ToolId DRT = utl::DRT;
 using frLayerNum = int;
 using frCoord = int;
@@ -43,11 +44,6 @@ template <typename T>
 using frList = std::list<T>;
 template <typename T>
 using frListIter = typename std::list<T>::iterator;
-using odb::dbIoType;
-using odb::dbMasterType;
-using odb::dbSigType;
-using odb::dbTechLayerDir;
-using odb::dbTechLayerType;
 
 enum frEndStyleEnum
 {
@@ -313,6 +309,7 @@ struct frDebugSettings
   bool paEdge{false};
   bool paCommit{false};
   std::string dumpDir;
+  std::string snapshotDir{"."};
 
   int mazeEndIter{-1};
   int drcCost{-1};
@@ -331,7 +328,7 @@ struct frDebugSettings
 template <class Archive>
 inline bool is_loading(const Archive& ar)
 {
-  return std::is_same<typename Archive::is_loading, boost::mpl::true_>::value;
+  return std::is_same_v<typename Archive::is_loading, boost::mpl::true_>;
 }
 
 using utl::format_as;

@@ -1,16 +1,22 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Copyright (c) 2019-2025, The OpenROAD Authors
 
-#include <map>
+#include <cmath>
+#include <cstdio>
+#include <memory>
 #include <vector>
 
-#include "grids.h"
 #include "gseq.h"
+#include "odb/db.h"
+#include "odb/dbSet.h"
+#include "odb/dbShape.h"
+#include "odb/dbTypes.h"
+#include "odb/geom.h"
+#include "rcx/array1.h"
 #include "rcx/dbUtil.h"
 #include "rcx/extRCap.h"
+#include "rcx/grids.h"
 #include "utl/Logger.h"
-
-namespace rcx {
 
 using odb::dbInst;
 using odb::dbNet;
@@ -30,6 +36,8 @@ using odb::MAX_INT;
 using odb::MIN_INT;
 using odb::Rect;
 using utl::RCX;
+
+namespace rcx {
 
 uint extMain::getBucketNum(int base, int max, uint step, int xy)
 {
@@ -318,7 +326,8 @@ uint extMain::initSearchForNets(int* X1,
   }
   const uint layerCnt = n + 1;
 
-  _search = new GridTable(&maxRect, 2, layerCnt, pitchTable, X1, Y1);
+  _search
+      = std::make_unique<GridTable>(&maxRect, 2, layerCnt, pitchTable, X1, Y1);
   _search->setBlock(_block);
 
   return layerCnt;
@@ -1018,13 +1027,14 @@ void extMain::fill_gs4(const int dir,
     Ath__array1D<uint> instGsTable(num_insts);
 
     for (dbInst* inst : _block->getInsts()) {
-      dbBox* R = inst->getBBox();
+      odb::dbBox* R = inst->getBBox();
 
       int R_ll[2] = {R->xMin(), R->yMin()};
       int R_ur[2] = {R->xMax(), R->yMax()};
 
-      if ((R_ur[dir] < lo_gs[dir]) || (R_ll[dir] > hi_gs[dir]))
+      if ((R_ur[dir] < lo_gs[dir]) || (R_ll[dir] > hi_gs[dir])) {
         continue;
+      }
 
       instGsTable.add(inst->getId());
     }
@@ -1051,7 +1061,7 @@ uint extMain::couplingFlow(Rect& extRect,
     pitchTable[ii] = 0;
     widthTable[ii] = 0;
   }
-  uint dirTable[16];
+  uint dirTable[32];
   int baseX[32];
   int baseY[32];
   uint layerCnt = initSearchForNets(

@@ -6,13 +6,15 @@ sta::define_cmd_args "pdngen" {[-skip_trim] \
                                [-reset] \
                                [-ripup] \
                                [-report_only] \
+                               [-check_only] \
                                [-failed_via_report file] \
                                [-verbose]
 } ;#checker off
 
 proc pdngen { args } {
   sta::parse_key_args "pdngen" args \
-    keys {-failed_via_report} flags {-skip_trim -dont_add_pins -reset -ripup -report_only -verbose}
+    keys {-failed_via_report} \
+    flags {-skip_trim -dont_add_pins -reset -ripup -report_only -verbose -check_only}
 
   sta::check_argc_eq0 "pdngen" $args
 
@@ -41,6 +43,13 @@ proc pdngen { args } {
       utl::error PDN 1039 "-report_only flag is mutually exclusive to all other flags"
     }
     pdn::report
+    return
+  }
+  if { [info exists flags(-check_only)] } {
+    if { [array size flags] != 1 } {
+      utl::error PDN 1040 "-check_only flag is mutually exclusive to all other flags"
+    }
+    pdn::check_setup
     return
   }
 
@@ -160,7 +169,9 @@ sta::define_cmd_args "define_pdn_grid" {[-name <name>] \
                                         [-obstructions <list_of_layers>] \
                                         [-power_switch_cell <name>] \
                                         [-power_control <signal_name>] \
-                                        [-power_control_network (STAR|DAISY)]
+                                        [-power_control_network (STAR|DAISY)] \
+                                        [-connect_to_pads] \
+                                        [-connect_to_pad_layers layers]
 } ;#checker off
 
 proc define_pdn_grid { args } {
@@ -256,13 +267,14 @@ sta::define_cmd_args "add_pdn_stripe" {[-grid grid_name] \
                                        [-extend_to_boundary] \
                                        [-snap_to_grid] \
                                        [-number_of_straps count] \
-                                       [-nets list_of_nets]
+                                       [-nets list_of_nets]\
+                                       [-allow_out_of_core]
 }
 
 proc add_pdn_stripe { args } {
   sta::parse_key_args "add_pdn_stripe" args \
     keys {-grid -layer -width -pitch -spacing -offset -starts_with -number_of_straps -nets} \
-    flags {-followpins -extend_to_core_ring -extend_to_boundary -snap_to_grid}
+    flags {-followpins -extend_to_core_ring -extend_to_boundary -snap_to_grid -allow_out_of_core}
 
   sta::check_argc_eq0 "add_pdn_stripe" $args
 
@@ -366,7 +378,8 @@ proc add_pdn_stripe { args } {
       $use_grid_power_order \
       $start_with_power \
       $extend \
-      $nets
+      $nets \
+      [info exists flags(-allow_out_of_core)]
   }
 }
 
@@ -493,7 +506,7 @@ proc add_pdn_ring { args } {
   if { [info exists flags(-connect_to_pads)] } {
     if { ![info exists keys(-connect_to_pad_layers)] } {
       foreach layer [[ord::get_db_tech] getLayers] {
-        if { [$layer getType] == "ROUTING" } {
+        if { [$layer getRoutingLevel] > 0 } {
           lappend connect_to_pad_layers $layer
         }
       }
@@ -536,14 +549,15 @@ sta::define_cmd_args "add_pdn_connect" {[-grid grid_name] \
                                         [-max_rows rows] \
                                         [-max_columns columns] \
                                         [-ongrid ongrid_layers] \
-                                        [-split_cuts split_cuts_mapping]
+                                        [-split_cuts split_cuts_mapping] \
+                                        [-split_cuts_staggered]
 }
 
 proc add_pdn_connect { args } {
   sta::parse_key_args "add_pdn_connect" args \
     keys {-grid -layers -cut_pitch -fixed_vias -max_rows -max_columns -ongrid -split_cuts \
       -dont_use_vias} \
-    flags {}
+    flags {-split_cuts_staggered}
 
   sta::check_argc_eq0 "add_pdn_connect" $args
 
@@ -607,11 +621,13 @@ proc add_pdn_connect { args } {
 
   set split_cuts_layers {}
   set split_cuts_pitches {}
+  set split_cuts_staggered false
   if { [info exists keys(-split_cuts)] } {
     foreach {l pitch} $keys(-split_cuts) {
       lappend split_cuts_layers [pdn::get_layer $l]
       lappend split_cuts_pitches [ord::microns_to_dbu $pitch]
     }
+    set split_cuts_staggered [info exists flags(-split_cuts_staggered)]
   }
 
   set dont_use ""
@@ -631,13 +647,14 @@ proc add_pdn_connect { args } {
     $ongrid \
     $split_cuts_layers \
     $split_cuts_pitches \
+    $split_cuts_staggered \
     $dont_use
 }
 
-sta::define_cmd_args "add_sroute_connect" {[-net net] \
-                                           [-outerNet outerNet] \
+sta::define_cmd_args "add_sroute_connect" {-net net \
                                            -layers list_of_2_layers \
-                                           -cut_pitch pitch_value \
+                                           -cut_pitch list_of_2_pitch_values \
+                                           [-outerNet outerNet] \
                                            [-fixed_vias list_of_vias] \
                                            [-max_rows rows] \
                                            [-max_columns columns] \
@@ -827,8 +844,8 @@ proc deprecated { args_var key { use "." } } {
 proc define_pdn_grid { args } {
   sta::parse_key_args "define_pdn_grid" args \
     keys {-name -voltage_domains -pins -starts_with -obstructions -power_switch_cell \
-      -power_control -power_control_network} \
-    flags {} ;# checker off
+      -power_control -power_control_network -connect_to_pad_layers} \
+    flags {-connect_to_pads} ;# checker off
 
   sta::check_argc_eq0 "define_pdn_grid" $args
   pdn::check_design_state "define_pdn_grid"
@@ -887,6 +904,21 @@ proc define_pdn_grid { args } {
     set power_control_network $keys(-power_control_network)
   }
 
+  set connect_to_pad_layers {}
+  if { [info exists flags(-connect_to_pads)] } {
+    if { ![info exists keys(-connect_to_pad_layers)] } {
+      foreach layer [[ord::get_db_tech] getLayers] {
+        if { [$layer getRoutingLevel] > 0 } {
+          lappend connect_to_pad_layers $layer
+        }
+      }
+    } else {
+      foreach layer $keys(-connect_to_pad_layers) {
+        lappend connect_to_pad_layers [get_layer $layer]
+      }
+    }
+  }
+
   foreach domain $domains {
     pdn::make_core_grid \
       $domain \
@@ -896,7 +928,8 @@ proc define_pdn_grid { args } {
       $obstructions \
       $power_cell \
       $power_control \
-      $power_control_network
+      $power_control_network \
+      $connect_to_pad_layers
   }
 }
 
@@ -1011,6 +1044,11 @@ proc define_pdn_grid_macro { args } {
         utl::error PDN 1030 "Unable to find instance: $inst_pattern"
       }
       foreach inst $sub_insts {
+        if { ![$inst isFixed] } {
+          utl::warn PDN 1050 \
+            "Ignoring non-fixed instance for grid (${keys(-name)}): [$inst getName]"
+          continue
+        }
         lappend insts $inst
       }
     }
@@ -1036,9 +1074,16 @@ proc define_pdn_grid_macro { args } {
   } else {
     set cells {}
     foreach cell_pattern $keys(-cells) {
-      foreach cell [get_masters $cell_pattern] {
+      set sub_cells [get_masters $cell_pattern]
+      if { [llength $sub_cells] == 0 } {
+        utl::warn PDN 1031 "Unable to find cells: $cell_pattern"
+      }
+      foreach cell $sub_cells {
         # only add blocks
         if { ![$cell isBlock] } {
+          if { !$default_grid } {
+            utl::warn PDN 1041 "Ignoring non-block cell for grid (${keys(-name)}): [$cell getName]"
+          }
           continue
         }
         lappend cells $cell

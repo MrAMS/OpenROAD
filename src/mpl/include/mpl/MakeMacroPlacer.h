@@ -3,18 +3,12 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace mpl {
+
 class MacroPlacer;
-}
 
-namespace ord {
+void initMacroPlacer(Tcl_Interp* tcl_interp);
 
-class OpenRoad;
-
-mpl::MacroPlacer* makeMacroPlacer();
-
-void initMacroPlacer(OpenRoad* openroad);
-
-void deleteMacroPlacer(mpl::MacroPlacer* macro_placer);
-
-}  // namespace ord
+}  // namespace mpl

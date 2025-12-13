@@ -5,21 +5,26 @@
 
 #include <algorithm>
 #include <cmath>
-#include <iostream>
+#include <cstring>
 #include <limits>
 #include <memory>
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 #include "Utils.hh"
 #include "db_sta/dbNetwork.hh"
+#include "odb/db.h"
+#include "odb/dbTypes.h"
 #include "sta/EquivCells.hh"
 #include "sta/FuncExpr.hh"
 #include "sta/Liberty.hh"
+#include "sta/NetworkClass.hh"
 #include "sta/Sequential.hh"
+#include "utl/Logger.h"
 
 namespace dft {
 
@@ -32,7 +37,9 @@ sta::LibertyPort* FindEquivalentPortInScanCell(
   sta::LibertyCellPortIterator scan_cell_ports_iter(scan_cell);
   while (scan_cell_ports_iter.hasNext()) {
     sta::LibertyPort* scan_cell_port = scan_cell_ports_iter.next();
-
+    if (scan_cell_port->isPwrGnd()) {
+      continue;
+    }
     bool port_equiv
         = non_scan_cell_port->direction() == scan_cell_port->direction();
     if (non_scan_cell_port->function() == nullptr
@@ -57,15 +64,18 @@ sta::LibertyPort* FindEquivalentPortInScanCell(
 // Checks the power ports between non scan cell and scan cell and checks if they
 // are equivalent. Returns the equivalent port found, otherwise nullptr if there
 // is none
-sta::LibertyPgPort* FindEquivalentPortInScanCell(
-    const sta::LibertyPgPort* non_scan_cell_port,
+sta::LibertyPort* FindEquivalentPgPortInScanCell(
+    const sta::LibertyPort* non_scan_cell_port,
     const sta::LibertyCell* scan_cell)
 {
-  sta::LibertyCellPgPortIterator scan_cell_ports_iter(scan_cell);
+  sta::LibertyCellPortIterator scan_cell_ports_iter(scan_cell);
   while (scan_cell_ports_iter.hasNext()) {
-    sta::LibertyPgPort* scan_cell_port = scan_cell_ports_iter.next();
+    sta::LibertyPort* scan_cell_port = scan_cell_ports_iter.next();
+    if (!scan_cell_port->isPwrGnd()) {
+      continue;
+    }
     const bool port_equiv
-        = sta::LibertyPgPort::equiv(non_scan_cell_port, scan_cell_port);
+        = sta::LibertyPort::equiv(non_scan_cell_port, scan_cell_port);
     if (port_equiv) {
       return scan_cell_port;
     }
@@ -86,6 +96,9 @@ bool IsScanEquivalent(
   sta::LibertyCellPortIterator non_scan_cell_ports_iter(non_scan_cell);
   while (non_scan_cell_ports_iter.hasNext()) {
     sta::LibertyPort* non_scan_cell_port = non_scan_cell_ports_iter.next();
+    if (non_scan_cell_port->isPwrGnd()) {
+      continue;
+    }
     sta::LibertyPort* scan_equiv_port
         = FindEquivalentPortInScanCell(non_scan_cell_port, scan_cell);
     if (!scan_equiv_port) {
@@ -96,12 +109,15 @@ bool IsScanEquivalent(
     seen_on_scan_cell.insert(scan_equiv_port);
   }
 
-  sta::LibertyCellPgPortIterator non_scan_cell_pg_ports_iter(non_scan_cell);
+  sta::LibertyCellPortIterator non_scan_cell_pg_ports_iter(non_scan_cell);
   while (non_scan_cell_pg_ports_iter.hasNext()) {
-    sta::LibertyPgPort* non_scan_cell_pg_port
+    sta::LibertyPort* non_scan_cell_pg_port
         = non_scan_cell_pg_ports_iter.next();
-    sta::LibertyPgPort* scan_equiv_port
-        = FindEquivalentPortInScanCell(non_scan_cell_pg_port, scan_cell);
+    if (!non_scan_cell_pg_port->isPwrGnd()) {
+      continue;
+    }
+    sta::LibertyPort* scan_equiv_port
+        = FindEquivalentPgPortInScanCell(non_scan_cell_pg_port, scan_cell);
     if (!scan_equiv_port) {
       return false;
     }
@@ -116,6 +132,9 @@ bool IsScanEquivalent(
   sta::LibertyCellPortIterator scan_cell_ports_iter(scan_cell);
   while (scan_cell_ports_iter.hasNext()) {
     sta::LibertyPort* scan_cell_port = scan_cell_ports_iter.next();
+    if (scan_cell_port->isPwrGnd()) {
+      continue;
+    }
     if (seen_on_scan_cell.find(scan_cell_port) != seen_on_scan_cell.end()) {
       continue;
     }

@@ -3,9 +3,12 @@
 
 #pragma once
 
+#include <cstdio>
+#include <list>
 #include <string>
 
-#include "extRCap.h"
+#include "odb/db.h"
+#include "rcx/extRCap.h"
 
 namespace rcx {
 
@@ -16,7 +19,10 @@ class extModelGen : public extRCModel
       : extRCModel(layerCnt, name, logger)
   {
   }
-  uint ReadRCDB(dbBlock* block, uint widthCnt, uint diagOption, char* logFile);
+  uint ReadRCDB(odb::dbBlock* block,
+                uint widthCnt,
+                uint diagOption,
+                char* logFile);
   void writeRules(FILE* fp, bool binary, uint m, int corner = -1);
   FILE* InitWriteRules(const char* name,
                        std::list<std::string> corner_list,

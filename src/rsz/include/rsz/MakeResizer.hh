@@ -3,22 +3,14 @@
 
 #pragma once
 
-namespace sta {
-class dbSta;
-}
+#include "odb/db.h"
+#include "tcl.h"
+#include "utl/Logger.h"
 
 namespace rsz {
+
 class Resizer;
-}
 
-namespace ord {
+void initResizer(Tcl_Interp* tcl_interp);
 
-class OpenRoad;
-
-rsz::Resizer* makeResizer();
-
-void deleteResizer(rsz::Resizer* resizer);
-
-void initResizer(OpenRoad* openroad);
-
-}  // namespace ord
+}  // namespace rsz

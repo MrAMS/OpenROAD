@@ -3,15 +3,11 @@
 
 #pragma once
 
-namespace ord {
-class OpenRoad;
-}
+#include "tcl.h"
 
 namespace dft {
 class Dft;
 
-Dft* makeDft();
-void initDft(ord::OpenRoad* openroad);
-void deleteDft(Dft* dft);
+void initDft(Tcl_Interp* tcl_interp);
 
 }  // namespace dft

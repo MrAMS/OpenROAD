@@ -4,19 +4,23 @@
 #pragma once
 
 #include <climits>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "odb/geom.h"
+
 namespace odb {
 class dbDatabase;
 
-class dbInst;
-class dbITerm;
 class dbBTerm;
-class dbNet;
 class dbGroup;
+class dbITerm;
+class dbInst;
+class dbNet;
+class dbObject;
 
 class dbPlacementStatus;
 class dbSigType;
@@ -37,16 +41,14 @@ namespace gpl {
 class Pin;
 class Net;
 class GCell;
+class PlacerBaseCommon;
+struct PlaceOptions;
 
 class Instance
 {
  public:
   Instance();
-  Instance(odb::dbInst* inst,
-           int padLeft,
-           int padRight,
-           int site_height,
-           utl::Logger* logger);
+  Instance(odb::dbInst* inst, PlacerBaseCommon* pbc, utl::Logger* logger);
   Instance(int lx, int ly, int ux, int uy);  // dummy instance
   ~Instance();
 
@@ -73,6 +75,7 @@ class Instance
   // unusable sites.  It will have inst_ as nullptr
   bool isDummy() const;
 
+  void copyDbLocation(PlacerBaseCommon* pbc);
   void setLocation(int x, int y);
   void setCenterLocation(int x, int y);
 
@@ -90,14 +93,15 @@ class Instance
   int cy() const;
   int dx() const;
   int dy() const;
-  int64_t area() const;
+  int64_t getArea() const;
 
   void setExtId(int extId);
-  int extId() const { return extId_; }
+  int getExtId() const { return extId_; }
 
   void addPin(Pin* pin);
-  const std::vector<Pin*>& pins() const { return pins_; }
+  const std::vector<Pin*>& getPins() const { return pins_; }
   void snapOutward(const odb::Point& origin, int step_x, int step_y);
+  void extendSizeByScale(double scale, utl::Logger* logger);
 
  private:
   odb::dbInst* inst_ = nullptr;
@@ -119,8 +123,8 @@ class Pin
   Pin(odb::dbBTerm* bTerm, utl::Logger* logger);
   ~Pin();
 
-  odb::dbITerm* dbITerm() const;
-  odb::dbBTerm* dbBTerm() const;
+  odb::dbITerm* getDbITerm() const;
+  odb::dbBTerm* getDbBTerm() const;
 
   bool isITerm() const;
   bool isBTerm() const;
@@ -143,8 +147,8 @@ class Pin
   int cx() const;
   int cy() const;
 
-  int offsetCx() const;
-  int offsetCy() const;
+  int getOffsetCx() const;
+  int getOffsetCy() const;
 
   void updateLocation(const Instance* inst);
 
@@ -153,14 +157,14 @@ class Pin
 
   bool isPlaceInstConnected() const;
 
-  Instance* instance() const { return inst_; }
-  Net* net() const { return net_; }
-  std::string name() const;
+  Instance* getInstance() const { return inst_; }
+  Net* getNet() const { return net_; }
+  std::string getName() const;
 
   void updateCoordi(odb::dbITerm* iTerm);
 
  private:
-  void* term_ = nullptr;
+  odb::dbObject* term_ = nullptr;
   Instance* inst_ = nullptr;
   Net* net_ = nullptr;
 
@@ -201,13 +205,13 @@ class Net
   int cy() const;
 
   // HPWL: half-parameter-wire-length
-  int64_t hpwl() const;
+  int64_t getHpwl() const;
 
   void updateBox(bool skipIoMode = false);
 
-  const std::vector<Pin*>& pins() const { return pins_; }
+  const std::vector<Pin*>& getPins() const { return pins_; }
 
-  odb::dbNet* dbNet() const { return net_; }
+  odb::dbNet* getDbNet() const { return net_; }
   odb::dbSigType getSigType() const;
 
   void addPin(Pin* pin);
@@ -264,22 +268,19 @@ class Die
   int coreUy_ = 0;
 };
 
-class PlacerBaseVars
+struct PlacerBaseVars
 {
- public:
-  int padLeft;
-  int padRight;
-  bool skipIoMode;
+  PlacerBaseVars(const PlaceOptions& options);
 
-  PlacerBaseVars();
-  void reset();
+  const int padLeft;
+  const int padRight;
+  const bool skipIoMode;
 };
 
 // Class includes everything from PlacerBase that is not region specific
 class PlacerBaseCommon
 {
  public:
-  PlacerBaseCommon();
   // temp padLeft/Right before OpenDB supporting...
   PlacerBaseCommon(odb::dbDatabase* db,
                    PlacerBaseVars pbVars,
@@ -287,11 +288,11 @@ class PlacerBaseCommon
   ~PlacerBaseCommon();
 
   const std::vector<Instance*>& placeInsts() const { return placeInsts_; }
-  const std::vector<Instance*>& insts() const { return insts_; }
-  const std::vector<Pin*>& pins() const { return pins_; }
-  const std::vector<Net*>& nets() const { return nets_; }
+  const std::vector<Instance*>& getInsts() const { return insts_; }
+  const std::vector<Pin*>& getPins() const { return pins_; }
+  const std::vector<Net*>& getNets() const { return nets_; }
 
-  Die& die() { return die_; }
+  Die& getDie() { return die_; }
 
   // Pb : PlacerBase
   Instance* dbToPb(odb::dbInst* inst) const;
@@ -302,14 +303,14 @@ class PlacerBaseCommon
   int siteSizeX() const { return siteSizeX_; }
   int siteSizeY() const { return siteSizeY_; }
 
-  int padLeft() const { return pbVars_.padLeft; }
-  int padRight() const { return pbVars_.padRight; }
-  bool skipIoMode() const { return pbVars_.skipIoMode; }
+  int getPadLeft() const { return pbVars_.padLeft; }
+  int getPadRight() const { return pbVars_.padRight; }
+  bool isSkipIoMode() const { return pbVars_.skipIoMode; }
 
-  int64_t hpwl() const;
+  int64_t getHpwl() const;
   void printInfo() const;
 
-  int64_t macroInstsArea() const { return macroInstsArea_; }
+  int64_t getMacroInstsArea() const { return macroInstsArea_; }
 
   odb::dbDatabase* db() const { return db_; }
 
@@ -334,7 +335,8 @@ class PlacerBaseCommon
   std::vector<Instance*> placeInsts_;
 
   std::unordered_map<odb::dbInst*, Instance*> instMap_;
-  std::unordered_map<void*, Pin*> pinMap_;
+  // The key is a dbITerm or a dbBTerm
+  std::unordered_map<odb::dbObject*, Pin*> pinMap_;
   std::unordered_map<odb::dbNet*, Net*> netMap_;
 
   int siteSizeX_ = 0;
@@ -357,7 +359,7 @@ class PlacerBase
              odb::dbGroup* group = nullptr);
   ~PlacerBase();
 
-  const std::vector<Instance*>& insts() const { return insts_; }
+  const std::vector<Instance*>& getInsts() const { return insts_; }
 
   //
   // placeInsts : a real instance that need to be placed
@@ -371,12 +373,14 @@ class PlacerBase
   const std::vector<Instance*>& dummyInsts() const { return dummyInsts_; }
   const std::vector<Instance*>& nonPlaceInsts() const { return nonPlaceInsts_; }
 
-  Die& die() { return die_; }
+  Die& getDie() { return die_; }
+  int64_t getRegionArea() const { return region_area_; }
+  const odb::Rect& getRegionBBox() const { return region_bbox_; }
 
-  int siteSizeX() const { return siteSizeX_; }
-  int siteSizeY() const { return siteSizeY_; }
+  int getSiteSizeX() const { return siteSizeX_; }
+  int getSiteSizeY() const { return siteSizeY_; }
 
-  int64_t hpwl() const;
+  int64_t getHpwl() const;
   void printInfo() const;
 
   int64_t placeInstsArea() const { return placeInstsArea_; }
@@ -385,7 +389,7 @@ class PlacerBase
   int64_t stdInstsArea() const { return stdInstsArea_; }
 
   odb::dbDatabase* db() const { return db_; }
-  odb::dbGroup* group() const { return group_; }
+  odb::dbGroup* getGroup() const { return group_; }
 
   void unlockAll();
 
@@ -394,6 +398,8 @@ class PlacerBase
   utl::Logger* log_ = nullptr;
 
   Die die_;
+  int64_t region_area_;
+  odb::Rect region_bbox_;
 
   std::vector<Instance> instStor_;
 

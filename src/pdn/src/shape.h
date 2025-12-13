@@ -3,8 +3,6 @@
 
 #pragma once
 
-#include <boost/geometry.hpp>
-#include <boost/geometry/index/rtree.hpp>
 #include <functional>
 #include <map>
 #include <memory>
@@ -12,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include "boost/geometry/geometry.hpp"
+#include "boost/geometry/index/rtree.hpp"
 #include "odb/db.h"
 #include "odb/dbTypes.h"
 #include "odb/geom.h"
@@ -167,6 +167,7 @@ class Shape
   bool hasTermConnections() const;
   bool hasITermConnections() const { return !iterm_connections_.empty(); }
   bool hasBTermConnections() const { return !bterm_connections_.empty(); };
+  bool hasInternalConnections() const;
 
   // returns the smallest shape possible when attempting to trim
   virtual odb::Rect getMinimumRect() const;
@@ -174,18 +175,19 @@ class Shape
   int getNumberOfConnectionsBelow() const;
   int getNumberOfConnectionsAbove() const;
 
-  Shape* extendTo(
+  std::unique_ptr<Shape> extendTo(
       const odb::Rect& rect,
       const ObstructionTree& obstructions,
+      Shape* orig_shape,
       const std::function<bool(const ShapePtr&)>& obs_filter
       = [](const ShapePtr&) { return true; }) const;
 
   virtual bool cut(const ObstructionTree& obstructions,
                    const Grid* ignore_grid,
-                   std::vector<Shape*>& replacements) const;
+                   std::vector<std::unique_ptr<Shape>>& replacements) const;
 
   // return a copy of the shape
-  virtual Shape* copy() const;
+  virtual std::unique_ptr<Shape> copy() const;
   // merge this shape with another
   virtual void merge(Shape* shape);
 
@@ -201,9 +203,10 @@ class Shape
   std::string getReportText() const;
   static std::string getRectText(const odb::Rect& rect, double dbu_to_micron);
 
-  void writeToDb(odb::dbSWire* swire,
-                 bool add_pins,
-                 bool make_rect_as_pin) const;
+  std::vector<odb::dbBox*> writeToDb(odb::dbSWire* swire,
+                                     bool add_pins,
+                                     bool make_rect_as_pin) const;
+
   // copy existing shapes into the map
   static void populateMapFromDb(odb::dbNet* net, ShapeVectorMap& map);
 
@@ -221,7 +224,7 @@ class Shape
 
  protected:
   bool cut(const ObstructionTree& obstructions,
-           std::vector<Shape*>& replacements,
+           std::vector<std::unique_ptr<Shape>>& replacements,
            const std::function<bool(const ShapePtr&)>& obs_filter) const;
 
  private:
@@ -242,7 +245,7 @@ class Shape
   std::set<odb::Rect> bterm_connections_;
 
   // add rect as bterm to database
-  void addBPinToDb(const odb::Rect& rect) const;
+  odb::dbBox* addBPinToDb(const odb::Rect& rect) const;
 
   void updateIBTermConnections(std::set<odb::Rect>& terms);
 
@@ -259,7 +262,7 @@ class FollowPinShape : public Shape
   void addRow(odb::dbRow* row) { rows_.insert(row); }
 
   odb::Rect getMinimumRect() const override;
-  Shape* copy() const override;
+  std::unique_ptr<Shape> copy() const override;
   void merge(Shape* shape) override;
   void updateTermConnections() override;
 
@@ -272,7 +275,7 @@ class FollowPinShape : public Shape
 
   bool cut(const ObstructionTree& obstructions,
            const Grid* ignore_grid,
-           std::vector<Shape*>& replacements) const override;
+           std::vector<std::unique_ptr<Shape>>& replacements) const override;
 
  private:
   std::set<odb::dbRow*> rows_;

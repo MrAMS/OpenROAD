@@ -9,10 +9,12 @@
 
 #include "db_sta/dbSta.hh"
 
-#include <tcl.h>
-
 #include <algorithm>  // min
+#include <cctype>
 #include <cmath>
+#include <cstdarg>
+#include <cstddef>
+#include <cstdint>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -20,16 +22,14 @@
 #include <regex>
 #include <set>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "boost/json.hpp"
 #include "boost/json/src.hpp"
 #include "dbSdcNetwork.hh"
-#include "db_sta/MakeDbSta.hh"
 #include "db_sta/dbNetwork.hh"
 #include "odb/db.h"
-#include "ord/OpenRoad.hh"
+#include "odb/dbTypes.h"
 #include "sta/Clock.hh"
 #include "sta/Delay.hh"
 #include "sta/EquivCells.hh"
@@ -41,21 +41,13 @@
 #include "sta/PatternMatch.hh"
 #include "sta/ReportTcl.hh"
 #include "sta/Sdc.hh"
+#include "sta/Sta.hh"
 #include "sta/StaMain.hh"
 #include "sta/Units.hh"
 #include "utl/Logger.h"
+#include "utl/histogram.h"
 
 ////////////////////////////////////////////////////////////////
-
-namespace ord {
-
-using sta::dbSta;
-
-dbSta* makeDbSta()
-{
-  return new dbSta;
-}
-}  // namespace ord
 
 namespace sta {
 
@@ -151,36 +143,6 @@ class dbStaReport : public sta::ReportTcl
   Logger* logger_ = nullptr;
 };
 
-// Helper class for histogram reporting.
-class dbStaHistogram
-{
- public:
-  dbStaHistogram(Sta* sta, dbNetwork* network, Logger* logger);
-
-  // Loads data_ with the slack value for each constrained endpoint.
-  void loadSlackData(const MinMax* min_max);
-  // Loads data_ with the logic depth for each constrained endpoint.
-  void loadLogicDepthData(bool exclude_buffers, bool exclude_inverters);
-  // Populates bins_ using the current data_, which must be loaded first.
-  void populateHistogramBins(int num_bins);
-  // Prints the histogram to the log. Width and precision are used to control
-  // the number of digits when displaying each bin's range.
-  void reportHistogram(int width, int precision) const;
-
- private:
-  std::vector<float> data_;
-  // Bins are defined in bins_ as equally sized windows of width bin_width_
-  // starting with smallest value min_val_ at the start of bin 0.
-  std::vector<int> bins_;
-  float min_val_ = 0.0;
-  float bin_width_ = 0.0;
-  bool integer_bins_ = false;  // Enforce int bin width (for discrete metrics).
-
-  Sta* sta_;
-  dbNetwork* network_;
-  Logger* logger_;
-};
-
 class dbStaCbk : public dbBlockCallBackObj
 {
  public:
@@ -188,12 +150,18 @@ class dbStaCbk : public dbBlockCallBackObj
   void setNetwork(dbNetwork* network);
   void inDbInstCreate(dbInst* inst) override;
   void inDbInstDestroy(dbInst* inst) override;
+  void inDbModuleCreate(dbModule* module) override;
+  void inDbModuleDestroy(dbModule* module) override;
   void inDbInstSwapMasterBefore(dbInst* inst, dbMaster* master) override;
   void inDbInstSwapMasterAfter(dbInst* inst) override;
   void inDbNetDestroy(dbNet* net) override;
+  void inDbModNetDestroy(dbModNet* modnet) override;
   void inDbITermPostConnect(dbITerm* iterm) override;
   void inDbITermPreDisconnect(dbITerm* iterm) override;
   void inDbITermDestroy(dbITerm* iterm) override;
+  void inDbModITermPostConnect(dbModITerm* moditerm) override;
+  void inDbModITermPreDisconnect(dbModITerm* moditerm) override;
+  void inDbModITermDestroy(dbModITerm* moditerm) override;
   void inDbBTermPostConnect(dbBTerm* bterm) override;
   void inDbBTermPreDisconnect(dbBTerm* bterm) override;
   void inDbBTermCreate(dbBTerm*) override;
@@ -202,6 +170,9 @@ class dbStaCbk : public dbBlockCallBackObj
   void inDbBTermSetSigType(dbBTerm* bterm, const dbSigType& sig_type) override;
 
  private:
+  // for inDbInstSwapMasterBefore/inDbInstSwapMasterAfter
+  bool swap_master_arcs_equiv_ = false;
+
   dbSta* sta_;
   dbNetwork* network_ = nullptr;
   Logger* logger_;
@@ -225,7 +196,25 @@ dbStaState::~dbStaState()
 
 ////////////////////////////////////////////////////////////////
 
-dbSta::~dbSta() = default;
+namespace {
+std::once_flag init_sta_flag;
+}
+
+dbSta::dbSta(Tcl_Interp* tcl_interp, odb::dbDatabase* db, utl::Logger* logger)
+{
+  std::call_once(init_sta_flag, []() { sta::initSta(); });
+  initVars(tcl_interp, db, logger);
+  if (!sta::Sta::sta()) {
+    sta::Sta::setSta(this);
+  }
+}
+
+dbSta::~dbSta()
+{
+  if (sta::Sta::sta() == this) {
+    sta::Sta::setSta(nullptr);
+  }
+}
 
 void dbSta::initVars(Tcl_Interp* tcl_interp,
                      odb::dbDatabase* db,
@@ -264,9 +253,7 @@ void dbSta::unregisterStaState(dbStaState* state)
 
 std::unique_ptr<dbSta> dbSta::makeBlockSta(odb::dbBlock* block)
 {
-  auto clone = std::make_unique<dbSta>();
-  clone->makeComponents();
-  clone->initVars(tclInterp(), db_, logger_);
+  auto clone = std::make_unique<dbSta>(tclInterp(), db_, logger_);
   clone->getDbNetwork()->setBlock(block);
   clone->getDbNetwork()->setDefaultLibertyLibrary(
       network_->defaultLibertyLibrary());
@@ -302,11 +289,17 @@ void dbSta::postReadLef(dbTech* tech, dbLib* library)
 
 void dbSta::postReadDef(dbBlock* block)
 {
-  if (!block->getParent()) {
+  // If this is the top block of the main chip:
+  if (!block->getParent() && block->getChip() == block->getDb()->getChip()) {
     db_network_->readDefAfter(block);
     db_cbk_->addOwner(block);
     db_cbk_->setNetwork(db_network_);
   }
+}
+
+void dbSta::postRead3Dbx(odb::dbChip* chip)
+{
+  // TODO: we are not ready to do timing on chiplets yet
 }
 
 void dbSta::postReadDb(dbDatabase* db)
@@ -336,9 +329,11 @@ std::set<dbNet*> dbSta::findClkNets()
     const PinSet* clk_pins = pins(clk);
     if (clk_pins) {
       for (const Pin* pin : *clk_pins) {
-        Net* net = network_->net(pin);
-        if (net) {
-          clk_nets.insert(db_network_->staToDb(net));
+        dbNet* db_net = nullptr;
+        sta::dbNetwork* db_network = getDbNetwork();
+        db_net = db_network->flatNet(pin);
+        if (db_net) {
+          clk_nets.insert(db_net);
         }
       }
     }
@@ -353,9 +348,21 @@ std::set<dbNet*> dbSta::findClkNets(const Clock* clk)
   const PinSet* clk_pins = pins(clk);
   if (clk_pins) {
     for (const Pin* pin : *clk_pins) {
-      Net* net = network_->net(pin);
-      if (net) {
-        clk_nets.insert(db_network_->staToDb(net));
+      dbNet* db_net = nullptr;
+      sta::dbNetwork* db_network = getDbNetwork();
+      // hierarchical fix
+      if (db_network->hasHierarchy()) {
+        db_net = db_network_->flatNet(pin);
+        if (db_net) {
+          clk_nets.insert(db_net);
+        }
+      }
+      // for backward compatibility with jpeg regression case.
+      else {
+        Net* net = network_->net(pin);
+        if (net) {
+          clk_nets.insert(db_network_->staToDb(net));
+        }
       }
     }
   }
@@ -680,28 +687,28 @@ void dbSta::reportCellUsage(odb::dbModule* module,
   }
 }
 
-dbStaHistogram::dbStaHistogram(Sta* sta, dbNetwork* network, Logger* logger)
-    : sta_(sta), network_(network), logger_(logger)
+void dbSta::reportTimingHistogram(int num_bins, const MinMax* min_max) const
 {
-}
+  utl::Histogram<float> histogram(logger_);
 
-void dbStaHistogram::loadSlackData(const MinMax* min_max)
-{
-  data_.clear();
   sta::Unit* time_unit = sta_->units()->timeUnit();
   for (sta::Vertex* vertex : *sta_->endpoints()) {
     float slack = sta_->vertexSlack(vertex, min_max);
     if (slack != sta::INF) {  // Ignore unconstrained paths.
-      data_.push_back(time_unit->staToUser(slack));
+      histogram.addData(time_unit->staToUser(slack));
     }
   }
-  integer_bins_ = false;
+
+  histogram.generateBins(num_bins);
+  histogram.report(/*precision=*/3);
 }
 
-void dbStaHistogram::loadLogicDepthData(bool exclude_buffers,
-                                        bool exclude_inverters)
+void dbSta::reportLogicDepthHistogram(int num_bins,
+                                      bool exclude_buffers,
+                                      bool exclude_inverters) const
 {
-  data_.clear();
+  utl::Histogram<int> histogram(logger_);
+
   sta_->worstSlack(MinMax::max());  // Update timing.
   for (sta::Vertex* vertex : *sta_->endpoints()) {
     int path_length = 0;
@@ -710,10 +717,10 @@ void dbStaHistogram::loadLogicDepthData(bool exclude_buffers,
     while (path) {
       Pin* pin = path->vertex(sta_)->pin();
       Instance* sta_inst = sta_->cmdNetwork()->instance(pin);
-      dbInst* inst = network_->staToDb(sta_inst);
+      dbInst* inst = db_network_->staToDb(sta_inst);
       if (!network_->isTopLevelPort(pin) && inst != prev_inst) {
         prev_inst = inst;
-        LibertyCell* lib_cell = network_->libertyCell(inst);
+        LibertyCell* lib_cell = db_network_->libertyCell(inst);
         if (lib_cell && (!exclude_buffers || !lib_cell->isBuffer())
             && (!exclude_inverters || !lib_cell->isInverter())) {
           path_length++;
@@ -721,92 +728,11 @@ void dbStaHistogram::loadLogicDepthData(bool exclude_buffers,
       }
       path = path->prevPath();
     }
-    data_.push_back(path_length);
+    histogram.addData(path_length);
   }
-  integer_bins_ = true;
-}
 
-void dbStaHistogram::populateHistogramBins(int num_bins)
-{
-  if (num_bins <= 0) {
-    logger_->error(STA, 70, "The number of bins must be positive.");
-    return;
-  }
-  if (data_.empty()) {
-    logger_->error(STA, 71, "No data for the histogram has been loaded.");
-    return;
-  }
-  std::sort(data_.begin(), data_.end());
-
-  // Populate each bin with count.
-  bins_.resize(num_bins, 0);
-  min_val_ = data_.front();
-  bin_width_ = (data_.back() - min_val_) / num_bins;
-  if (bin_width_ == 0) {  // Special case for no variation in the data.
-    bins_[0] = data_.size();
-    return;
-  }
-  if (integer_bins_) {
-    bin_width_ = std::ceil(bin_width_);
-  }
-  for (const float& val : data_) {
-    int bin = static_cast<int>((val - min_val_) / bin_width_);
-    if (bin >= num_bins) {  // Special case for val with the maximum value.
-      bin = num_bins - 1;
-    }
-    bins_[bin]++;
-  }
-}
-
-void dbStaHistogram::reportHistogram(int width, int precision) const
-{
-  constexpr int max_bin_width = 50;  // Max number of chars to print for a bin.
-  if (data_.empty()) {
-    logger_->error(STA, 72, "No data for the histogram has been loaded.");
-    return;
-  }
-  const int num_bins = bins_.size();
-  const int largest_bin = *std::max_element(bins_.begin(), bins_.end());
-
-  // Print the histogram.
-  for (int bin = 0; bin < num_bins; ++bin) {
-    const float bin_start = min_val_ + bin * bin_width_;
-    const float bin_end = min_val_ + (bin + 1) * bin_width_;
-    int bar_length  // Round the bar length to its closest value.
-        = (max_bin_width * bins_[bin] + largest_bin / 2) / largest_bin;
-    if (bar_length == 0 && bins_[bin] > 0) {
-      bar_length = 1;  // Better readability when non-zero bins have a bar.
-    }
-    logger_->report("[{:>{}.{}f}, {:>{}.{}f}{}: {} ({})",
-                    bin_start,
-                    width,
-                    precision,
-                    bin_end,
-                    width,
-                    precision,
-                    // The final bin is also closed from the right.
-                    bin == num_bins - 1 ? "]" : ")",
-                    std::string(bar_length, '*'),
-                    bins_[bin]);
-  }
-}
-
-void dbSta::reportTimingHistogram(int num_bins, const MinMax* min_max) const
-{
-  dbStaHistogram histogram(sta_, db_network_, logger_);
-  histogram.loadSlackData(min_max);
-  histogram.populateHistogramBins(num_bins);
-  histogram.reportHistogram(/*width=*/6, /*precision=*/3);
-}
-
-void dbSta::reportLogicDepthHistogram(int num_bins,
-                                      bool exclude_buffers,
-                                      bool exclude_inverters) const
-{
-  dbStaHistogram histogram(sta_, db_network_, logger_);
-  histogram.loadLogicDepthData(exclude_buffers, exclude_inverters);
-  histogram.populateHistogramBins(num_bins);
-  histogram.reportHistogram(/*width=*/3, /*precision=*/0);
+  histogram.generateBins(num_bins);
+  histogram.report();
 }
 
 BufferUse dbSta::getBufferUse(sta::LibertyCell* buffer)
@@ -828,17 +754,10 @@ void dbSta::deleteInstance(Instance* inst)
 
 void dbSta::replaceCell(Instance* inst, Cell* to_cell, LibertyCell* to_lib_cell)
 {
+  // do not call `Sta::replaceCell` as sta's before/after hooks are called
+  // from db callbacks
   NetworkEdit* network = networkCmdEdit();
-  LibertyCell* from_lib_cell = network->libertyCell(inst);
-  if (sta::equivCells(from_lib_cell, to_lib_cell)) {
-    replaceEquivCellBefore(inst, to_lib_cell);
-    network->replaceCell(inst, to_cell);
-    replaceEquivCellAfter(inst);
-  } else {
-    replaceCellBefore(inst, to_lib_cell);
-    network->replaceCell(inst, to_cell);
-    replaceCellAfter(inst);
-  }
+  network->replaceCell(inst, to_cell);
 }
 
 void dbSta::deleteNet(Net* net)
@@ -1032,31 +951,52 @@ void dbStaCbk::inDbInstDestroy(dbInst* inst)
   sta_->deleteLeafInstanceBefore(network_->dbToSta(inst));
 }
 
+void dbStaCbk::inDbModuleCreate(dbModule* module)
+{
+  network_->registerHierModule(network_->dbToSta(module));
+}
+
+void dbStaCbk::inDbModuleDestroy(dbModule* module)
+{
+  network_->unregisterHierModule(network_->dbToSta(module));
+}
+
 void dbStaCbk::inDbInstSwapMasterBefore(dbInst* inst, dbMaster* master)
 {
   LibertyCell* to_lib_cell = network_->libertyCell(network_->dbToSta(master));
   LibertyCell* from_lib_cell = network_->libertyCell(inst);
   Instance* sta_inst = network_->dbToSta(inst);
-  if (sta::equivCells(from_lib_cell, to_lib_cell)) {
+
+  swap_master_arcs_equiv_ = sta::equivCellsArcs(from_lib_cell, to_lib_cell);
+
+  if (swap_master_arcs_equiv_) {
     sta_->replaceEquivCellBefore(sta_inst, to_lib_cell);
   } else {
-    logger_->error(STA,
-                   1000,
-                   "instance {} swap master {} is not equivalent",
-                   inst->getConstName(),
-                   master->getConstName());
+    sta_->replaceCellBefore(sta_inst, to_lib_cell);
   }
 }
 
 void dbStaCbk::inDbInstSwapMasterAfter(dbInst* inst)
 {
-  sta_->replaceEquivCellAfter(network_->dbToSta(inst));
+  Instance* sta_inst = network_->dbToSta(inst);
+
+  if (swap_master_arcs_equiv_) {
+    sta_->replaceEquivCellAfter(sta_inst);
+  } else {
+    sta_->replaceCellAfter(sta_inst);
+  }
 }
 
 void dbStaCbk::inDbNetDestroy(dbNet* db_net)
 {
   Net* net = network_->dbToSta(db_net);
   sta_->deleteNetBefore(net);
+  network_->deleteNetBefore(net);
+}
+
+void dbStaCbk::inDbModNetDestroy(dbModNet* modnet)
+{
+  Net* net = network_->dbToSta(modnet);
   network_->deleteNetBefore(net);
 }
 
@@ -1077,6 +1017,25 @@ void dbStaCbk::inDbITermPreDisconnect(dbITerm* iterm)
 void dbStaCbk::inDbITermDestroy(dbITerm* iterm)
 {
   sta_->deletePinBefore(network_->dbToSta(iterm));
+}
+
+void dbStaCbk::inDbModITermPostConnect(dbModITerm* moditerm)
+{
+  Pin* pin = network_->dbToSta(moditerm);
+  network_->connectPinAfter(pin);
+  sta_->connectPinAfter(pin);
+}
+
+void dbStaCbk::inDbModITermPreDisconnect(dbModITerm* moditerm)
+{
+  Pin* pin = network_->dbToSta(moditerm);
+  sta_->disconnectPinBefore(pin);
+  network_->disconnectPinBefore(pin);
+}
+
+void dbStaCbk::inDbModITermDestroy(dbModITerm* moditerm)
+{
+  sta_->deletePinBefore(network_->dbToSta(moditerm));
 }
 
 void dbStaCbk::inDbBTermPostConnect(dbBTerm* bterm)

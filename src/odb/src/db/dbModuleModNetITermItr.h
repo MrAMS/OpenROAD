@@ -4,35 +4,33 @@
 // Generator Code Begin Header
 #pragma once
 
+#include "dbCore.h"
 #include "odb/dbIterator.h"
 #include "odb/odb.h"
 
 namespace odb {
 class _dbITerm;
 
-template <class T>
-class dbTable;
-
 class dbModuleModNetITermItr : public dbIterator
 {
  public:
-  dbModuleModNetITermItr(dbTable<_dbITerm>* iterm_tbl)
+  dbModuleModNetITermItr(dbTable<_dbITerm, 1024>* iterm_tbl)
   {
-    _iterm_tbl = iterm_tbl;
+    iterm_tbl_ = iterm_tbl;
   }
 
-  bool reversible() override;
-  bool orderReversed() override;
+  bool reversible() const override;
+  bool orderReversed() const override;
   void reverse(dbObject* parent) override;
-  uint sequential() override;
-  uint size(dbObject* parent) override;
-  uint begin(dbObject* parent) override;
-  uint end(dbObject* parent) override;
-  uint next(uint id, ...) override;
+  uint sequential() const override;
+  uint size(dbObject* parent) const override;
+  uint begin(dbObject* parent) const override;
+  uint end(dbObject* parent) const override;
+  uint next(uint id, ...) const override;
   dbObject* getObject(uint id, ...) override;
 
  private:
-  dbTable<_dbITerm>* _iterm_tbl;
+  dbTable<_dbITerm, 1024>* iterm_tbl_;
 };
 
 }  // namespace odb

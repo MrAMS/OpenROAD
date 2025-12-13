@@ -3,18 +3,10 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace tap {
-class Tapcell;
-}
 
-namespace ord {
+void initTapcell(Tcl_Interp* tcl_interp);
 
-class OpenRoad;
-
-tap::Tapcell* makeTapcell();
-
-void deleteTapcell(tap::Tapcell* tapcell);
-
-void initTapcell(OpenRoad* openroad);
-
-}  // namespace ord
+}  // namespace tap

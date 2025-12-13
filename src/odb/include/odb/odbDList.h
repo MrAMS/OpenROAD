@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "odb.h"
+#include "odb/odb.h"
 
 namespace odb {
 
@@ -14,12 +14,10 @@ namespace odb {
 ///
 
 template <class T>
-class DListEntry
+struct DListEntry
 {
- public:
-  DListEntry() : _next(nullptr), _prev(nullptr) {}
-  T* _next;
-  T* _prev;
+  T* next{nullptr};
+  T* prev{nullptr};
 };
 
 template <class T, DListEntry<T>*(T*)>
@@ -28,28 +26,23 @@ class DList;
 template <class T, DListEntry<T>* ENTRY(T*)>
 class DListIterator
 {
-  T* _cur;
-
-  void incr() { _cur = NEXT(_cur); }
-  T*& NEXT(T* n) { return ENTRY(n)->_next; }
-
  public:
-  DListIterator() { _cur = nullptr; }
-  DListIterator(T* cur) { _cur = cur; }
-  DListIterator(const DListIterator& i) { _cur = i._cur; }
+  DListIterator() = default;
+  DListIterator(T* cur) { cur_ = cur; }
+  DListIterator(const DListIterator& i) { cur_ = i.cur_; }
   DListIterator& operator=(const DListIterator& i)
   {
     if (this == &i) {
       return *this;
     }
 
-    _cur = i._cur;
+    cur_ = i.cur_;
     return *this;
   }
 
-  bool operator==(const DListIterator& i) const { return _cur == i._cur; }
-  bool operator!=(const DListIterator& i) const { return _cur != i._cur; }
-  T* operator*() { return _cur; }
+  bool operator==(const DListIterator& i) const { return cur_ == i.cur_; }
+  bool operator!=(const DListIterator& i) const { return cur_ != i.cur_; }
+  T* operator*() { return cur_; }
   DListIterator<T, ENTRY>& operator++()
   {
     incr();
@@ -62,95 +55,88 @@ class DListIterator
     return i;
   }
 
+ private:
+  void incr() { cur_ = next(cur_); }
+  T*& next(T* n) { return ENTRY(n)->next; }
+
+  T* cur_{nullptr};
+
   friend class DList<T, ENTRY>;
 };
 
 template <class T, DListEntry<T>* ENTRY(T*)>
 class DList
 {
- private:
-  T* _head;
-  T* _tail;
-
-  T*& NEXT(T* n) { return ENTRY(n)->_next; }
-
-  T*& PREV(T* n) { return ENTRY(n)->_prev; }
-
  public:
   using iterator = DListIterator<T, ENTRY>;
 
-  DList()
-  {
-    _head = nullptr;
-    _tail = nullptr;
-  }
-
-  T* front() { return _head; }
-  T* back() { return _tail; }
+  T* front() { return head_; }
+  T* back() { return tail_; }
 
   void push_front(T* p)
   {
-    if (_head == nullptr) {
-      _head = p;
-      _tail = p;
-      NEXT(p) = nullptr;
-      PREV(p) = nullptr;
+    if (head_ == nullptr) {
+      head_ = p;
+      tail_ = p;
+      next(p) = nullptr;
+      prev(p) = nullptr;
     } else {
-      PREV(_head) = p;
-      NEXT(p) = _head;
-      PREV(p) = nullptr;
-      _head = p;
+      prev(head_) = p;
+      next(p) = head_;
+      prev(p) = nullptr;
+      head_ = p;
     }
   }
 
   void push_back(T* p)
   {
-    if (_head == nullptr) {
-      _head = p;
-      _tail = p;
-      NEXT(p) = nullptr;
-      PREV(p) = nullptr;
+    if (head_ == nullptr) {
+      head_ = p;
+      tail_ = p;
+      next(p) = nullptr;
+      prev(p) = nullptr;
     } else {
-      NEXT(_tail) = p;
-      PREV(p) = _tail;
-      NEXT(p) = nullptr;
-      _tail = p;
+      next(tail_) = p;
+      prev(p) = tail_;
+      next(p) = nullptr;
+      tail_ = p;
     }
   }
 
-  void clear() { _head = _tail = nullptr; }
-  bool empty() const { return _head == nullptr; }
-  iterator begin() { return iterator(_head); }
+  void clear() { head_ = tail_ = nullptr; }
+  bool empty() const { return head_ == nullptr; }
+  iterator begin() { return iterator(head_); }
   iterator end() { return iterator(nullptr); }
 
   iterator remove(T* p) { return remove(iterator(p)); }
 
   DListIterator<T, ENTRY> remove(iterator cur)
   {
-    if (*cur == _head) {
-      if (*cur == _tail) {
-        _head = nullptr;
-        _tail = nullptr;
+    if (*cur == head_) {
+      if (*cur == tail_) {
+        head_ = nullptr;
+        tail_ = nullptr;
+      } else {
+        head_ = next(*cur);
+        prev(head_) = nullptr;
       }
-
-      else {
-        _head = NEXT(*cur);
-        PREV(_head) = nullptr;
-      }
+    } else if (*cur == tail_) {
+      tail_ = prev(*cur);
+      next(tail_) = nullptr;
+    } else {
+      next(prev(*cur)) = next(*cur);
+      prev(next(*cur)) = prev(*cur);
     }
 
-    else if (*cur == _tail) {
-      _tail = PREV(*cur);
-      NEXT(_tail) = nullptr;
-    }
-
-    else {
-      NEXT(PREV(*cur)) = NEXT(*cur);
-      PREV(NEXT(*cur)) = PREV(*cur);
-    }
-
-    return iterator(NEXT(*cur));
+    return iterator(next(*cur));
   }
+
+ private:
+  T*& next(T* n) { return ENTRY(n)->next; }
+  T*& prev(T* n) { return ENTRY(n)->prev; }
+
+  T* head_{nullptr};
+  T* tail_{nullptr};
 };
 
 }  // namespace odb

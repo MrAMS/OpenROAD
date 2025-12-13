@@ -3,18 +3,10 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace stt {
-class SteinerTreeBuilder;
-}
 
-namespace ord {
+void initSteinerTreeBuilder(Tcl_Interp* tcl_interp);
 
-class OpenRoad;
-
-stt::SteinerTreeBuilder* makeSteinerTreeBuilder();
-
-void initSteinerTreeBuilder(OpenRoad* openroad);
-
-void deleteSteinerTreeBuilder(stt::SteinerTreeBuilder* stt_builder);
-
-}  // namespace ord
+}  // namespace stt

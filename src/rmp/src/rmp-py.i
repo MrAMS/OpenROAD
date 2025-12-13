@@ -3,7 +3,8 @@
 
 %{
 #include "rmp/Restructure.h"
-#include "rmp/blif.h"
+#include "cut/blif.h"
+#include "sta/Corner.hh"
 #include "ord/OpenRoad.hh"
 #include "odb/db.h"
 #include "sta/Liberty.hh"
@@ -19,15 +20,17 @@ getOpenRoad();
 }
 
 using namespace rmp;
+using namespace cut;
 using ord::getRestructure;
 using ord::getOpenRoad;
 using odb::dbInst;
 using sta::LibertyPort;
+using sta::Corner;
 %}
 
 %include "../../Exception-py.i"
 
 %include <typemaps.i>
 %include <std_string.i>
-%include "rmp/blif.h"
+%include "cut/blif.h"
 %include "rmp/Restructure.h"

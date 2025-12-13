@@ -3,13 +3,9 @@
 
 #include "rsz/MakeResizer.hh"
 
-#include <memory>
-#include <utility>
-
-#include "SteinerRenderer.h"
-#include "gui/gui.h"
-#include "ord/OpenRoad.hh"
+#include "odb/db.h"
 #include "rsz/Resizer.hh"
+#include "tcl.h"
 #include "utl/decode.h"
 
 extern "C" {
@@ -18,38 +14,13 @@ extern int Rsz_Init(Tcl_Interp* interp);
 
 namespace rsz {
 extern const char* rsz_tcl_inits[];
-}
 
-namespace ord {
-
-rsz::Resizer* makeResizer()
+void initResizer(Tcl_Interp* tcl_interp)
 {
-  return new rsz::Resizer;
-}
-
-void deleteResizer(rsz::Resizer* resizer)
-{
-  delete resizer;
-}
-
-void initResizer(OpenRoad* openroad)
-{
-  std::unique_ptr<rsz::AbstractSteinerRenderer> steiner_renderer;
-  if (gui::Gui::enabled()) {
-    steiner_renderer = std::make_unique<rsz::SteinerRenderer>();
-  }
-  Tcl_Interp* interp = openroad->tclInterp();
-  openroad->getResizer()->init(openroad->getLogger(),
-                               openroad->getDb(),
-                               openroad->getSta(),
-                               openroad->getSteinerTreeBuilder(),
-                               openroad->getGlobalRouter(),
-                               openroad->getOpendp(),
-                               std::move(steiner_renderer));
   // Define swig TCL commands.
-  Rsz_Init(interp);
+  Rsz_Init(tcl_interp);
   // Eval encoded sta TCL sources.
-  utl::evalTclInit(interp, rsz::rsz_tcl_inits);
+  utl::evalTclInit(tcl_interp, rsz::rsz_tcl_inits);
 }
 
-}  // namespace ord
+}  // namespace rsz

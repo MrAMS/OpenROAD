@@ -58,14 +58,14 @@
       ]
     },
     {
-      "name": "x_grid_valid_",
+      "name": "x_grid_valid",
       "flags": [
         "private"
       ],
       "type": "bit"
     },
     {
-      "name": "y_grid_valid_",
+      "name": "y_grid_valid",
       "flags": [
         "private"
       ],
@@ -87,13 +87,13 @@
       "fields": [
         {
           "name": "usage",
-          "type": "uint8_t",
+          "type": "float",
           "flags": [],
           "default": 0
         },
         {
           "name": "capacity",
-          "type": "uint8_t",
+          "type": "float",
           "flags": [],
           "default": 0
         }

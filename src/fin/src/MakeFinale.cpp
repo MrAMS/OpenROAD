@@ -3,41 +3,24 @@
 
 #include "fin/MakeFinale.h"
 
-#include <tcl.h>
-
-#include "fin/Finale.h"
-#include "ord/OpenRoad.hh"
+#include "tcl.h"
 #include "utl/decode.h"
-
-namespace fin {
-// Tcl files encoded into strings.
-extern const char* fin_tcl_inits[];
-}  // namespace fin
 
 extern "C" {
 extern int Fin_Init(Tcl_Interp* interp);
 }
 
-namespace ord {
+namespace fin {
 
-fin::Finale* makeFinale()
-{
-  return new fin::Finale;
-}
+// Tcl files encoded into strings.
+extern const char* fin_tcl_inits[];
 
-void deleteFinale(fin::Finale* finale)
+void initFinale(Tcl_Interp* tcl_interp)
 {
-  delete finale;
-}
-
-void initFinale(OpenRoad* openroad)
-{
-  Tcl_Interp* tcl_interp = openroad->tclInterp();
   // Define swig TCL commands.
   Fin_Init(tcl_interp);
   // Eval encoded sta TCL sources.
   utl::evalTclInit(tcl_interp, fin::fin_tcl_inits);
-  openroad->getFinale()->init(openroad->getDb(), openroad->getLogger());
 }
 
-}  // namespace ord
+}  // namespace fin

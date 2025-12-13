@@ -3,18 +3,12 @@
 
 #pragma once
 
+#include "tcl.h"
+
 namespace rmp {
+
 class Restructure;
-}
 
-namespace ord {
+void initRestructure(Tcl_Interp* tcl_interp);
 
-class OpenRoad;
-
-rmp::Restructure* makeRestructure();
-
-void initRestructure(OpenRoad* openroad);
-
-void deleteRestructure(rmp::Restructure* restructure);
-
-}  // namespace ord
+}  // namespace rmp

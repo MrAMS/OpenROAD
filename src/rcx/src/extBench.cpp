@@ -2,17 +2,17 @@
 // Copyright (c) 2019-2025, The OpenROAD Authors
 
 #include <algorithm>
-#include <map>
-#include <vector>
+#include <cassert>
+#include <cstdio>
 
+#include "odb/db.h"
+#include "odb/dbSet.h"
+#include "odb/geom.h"
+#include "rcx/array1.h"
 #include "rcx/extRCap.h"
 #include "rcx/extSpef.h"
 #include "rcx/extprocess.h"
 #include "utl/Logger.h"
-
-namespace rcx {
-
-using utl::RCX;
 
 using odb::dbBlock;
 using odb::dbBox;
@@ -24,6 +24,9 @@ using odb::dbTechLayerRule;
 using odb::dbTechNonDefaultRule;
 using odb::dbWire;
 using odb::Rect;
+using utl::RCX;
+
+namespace rcx {
 
 extMainOptions::extMainOptions()
 {
@@ -478,9 +481,9 @@ uint extMain::benchWires(extMainOptions* opt)
   opt->_tech = _tech;
 
   if (_block == nullptr) {
-    dbChip* chip = dbChip::create(_db);
+    dbChip* chip = dbChip::create(_db, _tech);
     assert(chip);
-    _block = dbBlock::create(chip, opt->_name, _tech, '/');
+    _block = dbBlock::create(chip, opt->_name, '/');
     assert(_block);
     _prevControl = _block->getExtControl();
     _block->setBusDelimiters('[', ']');

@@ -3,10 +3,7 @@
 
 #include "dft/MakeDft.hh"
 
-#include "DftConfig.hh"
-#include "ScanReplace.hh"
-#include "dft/Dft.hh"
-#include "ord/OpenRoad.hh"
+#include "tcl.h"
 #include "utl/decode.h"
 
 namespace dft {
@@ -16,23 +13,10 @@ extern "C" {
 extern int Dft_Init(Tcl_Interp* interp);
 }
 
-dft::Dft* makeDft()
+void initDft(Tcl_Interp* tcl_interp)
 {
-  return new dft::Dft();
-}
-
-void initDft(ord::OpenRoad* openroad)
-{
-  Tcl_Interp* interp = openroad->tclInterp();
-  Dft_Init(interp);
-  utl::evalTclInit(interp, dft::dft_tcl_inits);
-  openroad->getDft()->init(
-      openroad->getDb(), openroad->getSta(), openroad->getLogger());
-}
-
-void deleteDft(dft::Dft* dft)
-{
-  delete dft;
+  Dft_Init(tcl_interp);
+  utl::evalTclInit(tcl_interp, dft::dft_tcl_inits);
 }
 
 }  // namespace dft

@@ -4,17 +4,23 @@
 #include "SimulatedAnnealingCore.h"
 
 #include <algorithm>
-#include <boost/random/uniform_int_distribution.hpp>
 #include <cmath>
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <numeric>
+#include <random>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "MplObserver.h"
+#include "boost/random/uniform_int_distribution.hpp"
+#include "clusterEngine.h"
+#include "mpl-util.h"
 #include "object.h"
+#include "odb/db.h"
+#include "odb/geom.h"
 #include "utl/Logger.h"
 
 namespace mpl {
@@ -36,10 +42,9 @@ SimulatedAnnealingCore<T>::SimulatedAnnealingCore(PhysicalHierarchy* tree,
                                                   int num_perturb_per_step,
                                                   unsigned seed,
                                                   MplObserver* graphics,
-                                                  utl::Logger* logger)
-    : outline_(outline),
-      blocked_boundaries_(tree->blocked_boundaries),
-      graphics_(graphics)
+                                                  utl::Logger* logger,
+                                                  odb::dbBlock* block)
+    : outline_(outline), graphics_(graphics), block_(block)
 {
   core_weights_ = weights;
 
@@ -62,7 +67,10 @@ SimulatedAnnealingCore<T>::SimulatedAnnealingCore(PhysicalHierarchy* tree,
   macros_ = macros;
 
   setDieArea(tree->die_area);
-  setBlockedBoundariesForIOs();
+  setAvailableRegionsForUnconstrainedPins(
+      tree->available_regions_for_unconstrained_pins);
+
+  io_cluster_to_constraint_ = tree->io_cluster_to_constraint;
 }
 
 template <class T>
@@ -74,22 +82,14 @@ void SimulatedAnnealingCore<T>::setDieArea(const Rect& die_area)
 }
 
 template <class T>
-void SimulatedAnnealingCore<T>::setBlockedBoundariesForIOs()
+void SimulatedAnnealingCore<T>::setAvailableRegionsForUnconstrainedPins(
+    const BoundaryRegionList& regions)
 {
-  if (blocked_boundaries_.find(Boundary::L) != blocked_boundaries_.end()) {
-    left_is_blocked_ = true;
-  }
+  available_regions_for_unconstrained_pins_ = regions;
 
-  if (blocked_boundaries_.find(Boundary::R) != blocked_boundaries_.end()) {
-    right_is_blocked_ = true;
-  }
-
-  if (blocked_boundaries_.find(Boundary::B) != blocked_boundaries_.end()) {
-    bottom_is_blocked_ = true;
-  }
-
-  if (blocked_boundaries_.find(Boundary::T) != blocked_boundaries_.end()) {
-    top_is_blocked_ = true;
+  for (BoundaryRegion& region : available_regions_for_unconstrained_pins_) {
+    region.line.addX(-block_->micronsToDbu(outline_.xMin()));
+    region.line.addY(-block_->micronsToDbu(outline_.yMin()));
   }
 }
 
@@ -100,8 +100,9 @@ void SimulatedAnnealingCore<T>::initSequencePair()
     return;
   }
 
-  const int sequence_pair_size
-      = macros_to_place_ != 0 ? macros_to_place_ : macros_.size();
+  const int sequence_pair_size = number_of_sequence_pair_macros_ != 0
+                                     ? number_of_sequence_pair_macros_
+                                     : macros_.size();
 
   int macro_id = 0;
 
@@ -152,12 +153,11 @@ void SimulatedAnnealingCore<T>::setInitialSequencePair(
 template <class T>
 bool SimulatedAnnealingCore<T>::isValid() const
 {
-  return (width_ <= std::ceil(outline_.getWidth()))
-         && (height_ <= std::ceil(outline_.getHeight()));
+  return resultFitsInOutline();
 }
 
 template <class T>
-bool SimulatedAnnealingCore<T>::isValid(const Rect& outline) const
+bool SimulatedAnnealingCore<T>::fitsIn(const Rect& outline) const
 {
   return (width_ <= std::ceil(outline.getWidth()))
          && (height_ <= std::ceil(outline.getHeight()));
@@ -237,9 +237,9 @@ float SimulatedAnnealingCore<T>::getNormFencePenalty() const
 }
 
 template <class T>
-void SimulatedAnnealingCore<T>::getMacros(std::vector<T>& macros) const
+std::vector<T> SimulatedAnnealingCore<T>::getMacros() const
 {
-  macros = macros_;
+  return macros_;
 }
 
 // Private functions
@@ -263,104 +263,91 @@ void SimulatedAnnealingCore<T>::calOutlinePenalty()
 template <class T>
 void SimulatedAnnealingCore<T>::calWirelength()
 {
-  // Initialization
-  wirelength_ = 0.0;
   if (core_weights_.wirelength <= 0.0) {
     return;
   }
 
-  // calculate the total net weight
-  float tot_net_weight = 0.0;
-  for (const auto& net : nets_) {
-    tot_net_weight += net.weight;
-  }
-
-  if (tot_net_weight <= 0.0) {
-    return;
-  }
-
-  for (const auto& net : nets_) {
-    T& source = macros_[net.terminals.first];
-    T& target = macros_[net.terminals.second];
-
-    if (target.isClusterOfUnplacedIOPins()) {
-      addBoundaryDistToWirelength(source, target, net.weight);
-      continue;
-    }
-
-    const float x1 = source.getPinX();
-    const float y1 = source.getPinY();
-    const float x2 = target.getPinX();
-    const float y2 = target.getPinY();
-    wirelength_ += net.weight * (std::abs(x2 - x1) + std::abs(y2 - y1));
-  }
-
-  // normalization
-  wirelength_ = wirelength_ / tot_net_weight
-                / (outline_.getHeight() + outline_.getWidth());
+  wirelength_ = computeNetsWireLength(nets_);
 
   if (graphics_) {
-    graphics_->setWirelengthPenalty({"Wire Length",
-                                     core_weights_.wirelength,
-                                     wirelength_,
-                                     norm_wirelength_});
+    graphics_->setWirelengthPenalty({.name = "Wire Length",
+                                     .weight = core_weights_.wirelength,
+                                     .value = wirelength_,
+                                     .normalization_factor = norm_wirelength_});
   }
 }
 
 template <class T>
-void SimulatedAnnealingCore<T>::addBoundaryDistToWirelength(
+float SimulatedAnnealingCore<T>::computeNetsWireLength(
+    const std::vector<BundledNet>& nets) const
+{
+  float nets_wire_length = 0.0;
+  float nets_weight_sum = 0.0;
+
+  for (const auto& net : nets_) {
+    nets_weight_sum += net.weight;
+  }
+
+  if (nets_weight_sum != 0.0) {
+    for (const auto& net : nets) {
+      const T& source = macros_[net.terminals.first];
+      const T& target = macros_[net.terminals.second];
+
+      if (target.isClusterOfUnplacedIOPins()) {
+        nets_wire_length
+            += computeWLForClusterOfUnplacedIOPins(source, target, net.weight);
+      } else {
+        const float x1 = source.getPinX();
+        const float y1 = source.getPinY();
+        const float x2 = target.getPinX();
+        const float y2 = target.getPinY();
+
+        nets_wire_length
+            += net.weight * (std::abs(x2 - x1) + std::abs(y2 - y1));
+      }
+    }
+
+    nets_wire_length = nets_wire_length / nets_weight_sum
+                       / (outline_.getHeight() + outline_.getWidth());
+  }
+
+  return nets_wire_length;
+}
+
+template <class T>
+double SimulatedAnnealingCore<T>::computeWLForClusterOfUnplacedIOPins(
     const T& macro,
     const T& unplaced_ios,
-    const float net_weight)
+    const float net_weight) const
 {
   // To generate maximum cost.
   const float max_dist = die_area_.getPerimeter() / 2;
 
   if (isOutsideTheOutline(macro)) {
-    wirelength_ += net_weight * max_dist;
-    return;
+    return net_weight * max_dist;
   }
 
-  const float x1 = macro.getPinX();
-  const float y1 = macro.getPinY();
-
-  Boundary constraint_boundary
-      = unplaced_ios.getCluster()->getConstraintBoundary();
-
-  if (constraint_boundary == NONE) {
-    float dist_to_left = max_dist;
-    if (!left_is_blocked_) {
-      dist_to_left = std::abs(x1 - die_area_.xMin());
+  const odb::Point macro_location(block_->micronsToDbu(macro.getPinX()),
+                                  block_->micronsToDbu(macro.getPinY()));
+  double smallest_distance;
+  if (unplaced_ios.getCluster()->isClusterOfUnconstrainedIOPins()) {
+    if (available_regions_for_unconstrained_pins_.empty()) {
+      logger_->critical(
+          utl::MPL,
+          47,
+          "There's no available region for the unconstrained pins!");
     }
 
-    float dist_to_right = max_dist;
-    if (!right_is_blocked_) {
-      dist_to_right = std::abs(x1 - die_area_.xMax());
-    }
-
-    float dist_to_bottom = max_dist;
-    if (!bottom_is_blocked_) {
-      dist_to_right = std::abs(y1 - die_area_.yMin());
-    }
-
-    float dist_to_top = max_dist;
-    if (!top_is_blocked_) {
-      dist_to_top = std::abs(y1 - die_area_.yMax());
-    }
-
-    wirelength_
-        += net_weight
-           * std::min(
-               {dist_to_left, dist_to_right, dist_to_bottom, dist_to_top});
-  } else if (constraint_boundary == Boundary::L
-             || constraint_boundary == Boundary::R) {
-    const float x2 = unplaced_ios.getPinX();
-    wirelength_ += net_weight * std::abs(x2 - x1);
-  } else if (constraint_boundary == Boundary::T
-             || constraint_boundary == Boundary::B) {
-    const float y2 = unplaced_ios.getPinY();
-    wirelength_ += net_weight * std::abs(y2 - y1);
+    smallest_distance = computeDistToNearestRegion(
+        macro_location, available_regions_for_unconstrained_pins_, nullptr);
+  } else {
+    Cluster* cluster = unplaced_ios.getCluster();
+    const BoundaryRegion& constraint = io_cluster_to_constraint_.at(cluster);
+    smallest_distance
+        = computeDistToNearestRegion(macro_location, {constraint}, nullptr);
   }
+
+  return net_weight * block_->dbuToMicrons(smallest_distance);
 }
 
 // We consider the macro outside the outline based on the location of
@@ -463,11 +450,6 @@ void SimulatedAnnealingCore<T>::calGuidancePenalty()
 template <class T>
 void SimulatedAnnealingCore<T>::packFloorplan()
 {
-  for (auto& macro_id : pos_seq_) {
-    macros_[macro_id].setX(0.0);
-    macros_[macro_id].setY(0.0);
-  }
-
   // Each index corresponds to a macro id whose pair is:
   // <Position in Positive Sequence , Position in Negative Sequence>
   std::vector<std::pair<int, int>> sequence_pair_pos(pos_seq_.size());
@@ -482,11 +464,13 @@ void SimulatedAnnealingCore<T>::packFloorplan()
   for (int i = 0; i < pos_seq_.size(); i++) {
     const int macro_id = pos_seq_[i];
     const int neg_seq_pos = sequence_pair_pos[macro_id].second;
+    T& macro = macros_[macro_id];
 
-    macros_[macro_id].setX(accumulated_length[neg_seq_pos]);
+    if (!macro.isFixed()) {
+      macro.setX(accumulated_length[neg_seq_pos]);
+    }
 
-    const float current_length
-        = macros_[macro_id].getX() + macros_[macro_id].getWidth();
+    const float current_length = macro.getX() + macro.getWidth();
 
     for (int j = neg_seq_pos; j < neg_seq_.size(); j++) {
       if (current_length > accumulated_length[j]) {
@@ -517,11 +501,13 @@ void SimulatedAnnealingCore<T>::packFloorplan()
   for (int i = 0; i < pos_seq_.size(); i++) {
     const int macro_id = reversed_pos_seq[i];
     const int neg_seq_pos = sequence_pair_pos[macro_id].second;
+    T& macro = macros_[macro_id];
 
-    macros_[macro_id].setY(accumulated_length[neg_seq_pos]);
+    if (!macro.isFixed()) {
+      macro.setY(accumulated_length[neg_seq_pos]);
+    }
 
-    const float current_height
-        = macros_[macro_id].getY() + macros_[macro_id].getHeight();
+    const float current_height = macro.getY() + macro.getHeight();
 
     for (int j = neg_seq_pos; j < neg_seq_.size(); j++) {
       if (current_height > accumulated_length[j]) {
@@ -730,41 +716,45 @@ void SimulatedAnnealingCore<T>::fastSA()
 {
   float cost = calNormCost();
   float pre_cost = cost;
-  float delta_cost = 0.0;
   int step = 1;
   float temperature = init_temperature_;
   const float min_t = 1e-10;
   const float t_factor
       = std::exp(std::log(min_t / init_temperature_) / max_num_step_);
 
-  // Used to ensure notch penalty is used only in the latter steps
-  // as it is too expensive
-  notch_weight_ = 0.0;
-
-  if (isValid()) {
-    updateBestValidResult();
-  }
+  updateBestResult(cost);
 
   while (step <= max_num_step_) {
     for (int i = 0; i < num_perturb_per_step_; i++) {
+      saveState();
       perturb();
       cost = calNormCost();
 
-      const bool keep_result
-          = cost < pre_cost
-            || best_valid_result_.sequence_pair.pos_sequence.empty();
-      if (isValid() && keep_result) {
-        updateBestValidResult();
+      const bool is_valid = isValid();
+      if (!invalid_states_allowed_ && !is_valid) {
+        restoreState();
+        continue;
       }
 
-      delta_cost = cost - pre_cost;
-      const float num = distribution_(generator_);
-      const float prob
-          = (delta_cost > 0.0) ? std::exp((-1) * delta_cost / temperature) : 1;
-      if (num < prob) {
+      const bool found_new_best_result = cost < best_result_.cost;
+      if ((!is_best_result_valid_ || is_valid) && found_new_best_result) {
+        updateBestResult(cost);
+        is_best_result_valid_ = is_valid;
+      }
+
+      const float delta_cost = cost - pre_cost;
+      if (delta_cost <= 0) {
+        // always accept improvements
         pre_cost = cost;
       } else {
-        restore();
+        // probabilistically accept degradations for hill climbing
+        const float num = distribution_(generator_);
+        const float prob = std::exp(-delta_cost / temperature);
+        if (num < prob) {
+          pre_cost = cost;
+        } else {
+          restoreState();
+        }
       }
     }
 
@@ -773,13 +763,6 @@ void SimulatedAnnealingCore<T>::fastSA()
 
     cost_list_.push_back(pre_cost);
     T_list_.push_back(temperature);
-
-    if (step == max_num_step_ - macros_.size() * 2) {
-      notch_weight_ = original_notch_weight_;
-      packFloorplan();
-      calPenalty();
-      pre_cost = calNormCost();
-    }
   }
 
   packFloorplan();
@@ -787,37 +770,48 @@ void SimulatedAnnealingCore<T>::fastSA()
     graphics_->doNotSkip();
   }
   calPenalty();
+  cost = calNormCost();
 
-  if (!isValid() && !best_valid_result_.sequence_pair.pos_sequence.empty()) {
-    useBestValidResult();
+  const bool found_new_best_result = cost < best_result_.cost;
+  if ((is_best_result_valid_ && !isValid()) || !found_new_best_result) {
+    useBestResult();
   }
 }
 
 template <class T>
-void SimulatedAnnealingCore<T>::updateBestValidResult()
+bool SimulatedAnnealingCore<T>::resultFitsInOutline() const
 {
-  best_valid_result_.sequence_pair.pos_sequence = pos_seq_;
-  best_valid_result_.sequence_pair.neg_sequence = neg_seq_;
+  return (width_ <= std::ceil(outline_.getWidth()))
+         && (height_ <= std::ceil(outline_.getHeight()));
+}
+
+template <class T>
+void SimulatedAnnealingCore<T>::updateBestResult(const float cost)
+{
+  best_result_.sequence_pair.pos_sequence = pos_seq_;
+  best_result_.sequence_pair.neg_sequence = neg_seq_;
 
   if constexpr (std::is_same_v<T, SoftMacro>) {
     for (const int macro_id : pos_seq_) {
       SoftMacro& macro = macros_[macro_id];
-      best_valid_result_.macro_id_to_width[macro_id] = macro.getWidth();
+      best_result_.macro_id_to_width[macro_id] = macro.getWidth();
     }
   }
+
+  best_result_.cost = cost;
 }
 
 template <class T>
-void SimulatedAnnealingCore<T>::useBestValidResult()
+void SimulatedAnnealingCore<T>::useBestResult()
 {
-  pos_seq_ = best_valid_result_.sequence_pair.pos_sequence;
-  neg_seq_ = best_valid_result_.sequence_pair.neg_sequence;
+  pos_seq_ = best_result_.sequence_pair.pos_sequence;
+  neg_seq_ = best_result_.sequence_pair.neg_sequence;
 
   if constexpr (std::is_same_v<T, SoftMacro>) {
     for (const int macro_id : pos_seq_) {
       SoftMacro& macro = macros_[macro_id];
       const float valid_result_width
-          = best_valid_result_.macro_id_to_width.at(macro_id);
+          = best_result_.macro_id_to_width.at(macro_id);
 
       if (macro.isMacroCluster()) {
         const float valid_result_height = macro.getArea() / valid_result_width;

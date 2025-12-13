@@ -7,11 +7,14 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <tuple>
 #include <vector>
 
+#include "odb/geom.h"
 #include "odb/geom_boost.h"
 
 namespace odb {
+class dbBox;
 class dbTechLayer;
 class dbBPin;
 class dbITerm;
@@ -29,11 +32,11 @@ class Node
  public:
   enum class NodeType
   {
-    Node,
-    Source,
-    ITerm,
-    BPin,
-    Unknown
+    kNode,
+    kSource,
+    kITerm,
+    kBPin,
+    kUnknown
   };
 
   struct Compare
@@ -66,7 +69,7 @@ class Node
   static CompareInformation dummyCompareTuple();
 
  protected:
-  virtual NodeType getType() const { return NodeType::Node; }
+  virtual NodeType getType() const { return NodeType::kNode; }
 
   virtual int getTypeCompareInfo() const { return 0; };
 
@@ -85,7 +88,7 @@ class SourceNode : public Node
   Node* getSource() const { return source_; }
 
  protected:
-  NodeType getType() const override { return NodeType::Source; }
+  NodeType getType() const override { return NodeType::kSource; }
 
  private:
   Node* source_;
@@ -112,7 +115,7 @@ class ITermNode : public TerminalNode
   std::string describe(const std::string& prefix) const override;
 
  protected:
-  NodeType getType() const override { return NodeType::ITerm; }
+  NodeType getType() const override { return NodeType::kITerm; }
 
   int getTypeCompareInfo() const override;
 
@@ -123,17 +126,21 @@ class ITermNode : public TerminalNode
 class BPinNode : public TerminalNode
 {
  public:
-  BPinNode(odb::dbBPin* pin, const odb::Rect& shape, odb::dbTechLayer* layer);
+  BPinNode(odb::dbBPin* pin, odb::dbBox* box, odb::dbTechLayer* layer);
 
   const odb::dbBPin* getBPin() const { return pin_; }
+  bool shouldConnect() const;
 
  protected:
-  NodeType getType() const override { return NodeType::BPin; }
+  NodeType getType() const override { return NodeType::kBPin; }
 
   int getTypeCompareInfo() const override;
 
  private:
   odb::dbBPin* pin_;
+  odb::dbBox* box_;
+
+  static constexpr const char* kDisconnectProperty = "PSM_DISCONNECT";
 };
 
 }  // namespace psm

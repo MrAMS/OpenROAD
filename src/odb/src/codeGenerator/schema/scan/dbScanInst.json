@@ -42,6 +42,18 @@
       "type": "uint",
       "default": "0",
       "flags": ["private"]
+    },
+    {
+      "name": "next_list_scan_inst_",
+      "type": "dbId<_dbScanInst>",
+      "flags": ["private"],
+      "schema":"db_schema_block_owns_scan_insts"
+    },
+    {
+      "name": "prev_list_scan_inst_",
+      "type": "dbId<_dbScanInst>",
+      "flags": ["private"],
+      "schema":"db_schema_block_owns_scan_insts"
     }
   ],
   "enums": [

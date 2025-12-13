@@ -3,7 +3,9 @@
 
 #pragma once
 
-#include "odb.h"
+#include <string>
+
+#include "odb/odb.h"
 
 namespace utl {
 class Logger;
@@ -31,10 +33,8 @@ class _dbObject;
 ///
 enum dbObjectType
 {
-  dbDatabaseObj,
 
   // Design Objects
-  dbChipObj,
   dbGdsLibObj,
   dbBlockObj,
   dbInstHdrObj,
@@ -62,6 +62,15 @@ enum dbObjectType
   dbAccessPointObj,
   dbBusPortObj,
   dbCellEdgeSpacingObj,
+  dbChipObj,
+  dbChipBumpObj,
+  dbChipBumpInstObj,
+  dbChipConnObj,
+  dbChipInstObj,
+  dbChipNetObj,
+  dbChipRegionObj,
+  dbChipRegionInstObj,
+  dbDatabaseObj,
   dbDftObj,
   dbGCellGridObj,
   dbGDSARefObj,
@@ -90,6 +99,7 @@ enum dbObjectType
   dbPolygonObj,
   dbPowerDomainObj,
   dbPowerSwitchObj,
+  dbPropertyObj,
   dbScanChainObj,
   dbScanInstObj,
   dbScanListObj,
@@ -143,7 +153,6 @@ enum dbObjectType
   dbTechViaLayerRuleObj,
 
   // Property
-  dbPropertyObj,
   dbNameObj
 };
 
@@ -156,17 +165,31 @@ class dbObject
   dbDatabase* getDb() const;
   uint getId() const;
   const char* getTypeName() const;
+  std::string getName() const;
+  bool isValid() const;
 
   static const char* getTypeName(dbObjectType type);
   static dbObjectType getType(const char* name, utl::Logger* logger);
-  // These are not intended for client use as the returned class is
-  // not exported.  They are for internal db convenience.
+
+  ///
+  /// These are not intended for client use as the returned class is
+  /// not exported.  They are for internal db convenience.
+  ///
   _dbObject* getImpl();
   const _dbObject* getImpl() const;
+
+  ///
+  /// Returns object name for debugging
+  /// e.g., "dbITerm(34, 0x555551234b, 'u0/buf/A')"
+  ///
+  std::string getDebugName() const;
 
  protected:
   dbObject() = default;
   ~dbObject() = default;
 };
+
+dbIStream& operator>>(dbIStream& stream, dbObjectType& type);
+dbOStream& operator<<(dbOStream& stream, dbObjectType type);
 
 }  // namespace odb

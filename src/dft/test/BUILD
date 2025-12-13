@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Copyright (c) 2022-2025, The OpenROAD Authors
+
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
 load("//test:regression.bzl", "regression_test")
+
+package(features = ["layering_check"])
 
 # From CMakeLists.txt or_integration_tests(TESTS
 COMPULSORY_TESTS = [
@@ -62,8 +66,6 @@ filegroup(
         "register_bank_cores.lef",
         "register_bank_top.v",
         "scan_architect_sky130.v",
-        "scan_inserted_design_sky130.def.ok",
-        "scan_inserted_design_sky130.out.def",
         "scan_inserted_design_sky130.scandef",
         "scan_inserted_design_sky130.v",
         "scan_inserted_register_bank.v",
@@ -89,7 +91,7 @@ filegroup(
 [
     filegroup(
         name = test_name + "_resources",
-        data = [":regression_resources"] + glob(
+        srcs = [":regression_resources"] + glob(
             [
                 test_name + ".*",
             ],
@@ -107,3 +109,31 @@ filegroup(
     )
     for test_name in ALL_TESTS
 ]
+
+cc_test(
+    name = "dft_scan_architect_unittest",
+    srcs = ["cpp/TestScanArchitect.cpp"],
+    features = ["-layering_check"],  # TODO: includes private headers
+    deps = [
+        "//src/dft",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)
+
+cc_test(
+    name = "dft_scan_architect_heuristic_unittest",
+    srcs = [
+        "cpp/ScanCellMock.cpp",
+        "cpp/ScanCellMock.hh",
+        "cpp/TestScanArchitectHeuristic.cpp",
+    ],
+    features = ["-layering_check"],  # TODO: includes private headers
+    deps = [
+        "//src/dft",
+        "//src/odb",
+        "//src/utl",
+        "@googletest//:gtest",
+        "@googletest//:gtest_main",
+    ],
+)
