@@ -24,12 +24,7 @@ git_override(
     remote = "https://github.com/amorphic-io/swig.git",
 )
 
-bazel_dep(name = "llvm-project", version = "21.0.0")
-git_override(
-    module_name = "llvm-project",
-    commit = "93c4a9c7b9d2fef50ad97c80efa54ccaed7df0c8",
-    remote = "https://github.com/amorphic-io/llvm-project",
-)
+bazel_dep(name = "llvm-project", version = "17.0.3.bcr.4")
 
 # The current rules_cc 0.1.1 hardcodes script locations to `#!/bin/bash`
 # instead of using `#!/usr/bin/env bash`.
