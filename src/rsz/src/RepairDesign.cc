@@ -355,7 +355,7 @@ void RepairDesign::repairDesign(
                    true /* check_fanout */,
                    max_length,
                    true /* resize_driver */,
-                   drvr_with_load_slew_viol.contains(drvr)
+                   drvr_with_load_slew_viol.find(drvr) != drvr_with_load_slew_viol.end()
                        ? drvr_with_load_slew_viol.at(drvr)
                        : nullptr,
                    repaired_net_count,

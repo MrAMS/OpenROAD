@@ -30,9 +30,7 @@ class Tech
   // interpreter from Tcl_Main.
   Tech(Tcl_Interp* interp = nullptr,
        const char* log_filename = nullptr,
-       const char* metrics_filename = nullptr,
-       bool quiet_logs = false,
-       bool silent_logs = false);
+       const char* metrics_filename = nullptr);
   ~Tech();
 
   void readLef(const std::string& file_name);

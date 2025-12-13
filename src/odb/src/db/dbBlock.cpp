@@ -2488,7 +2488,7 @@ int dbBlock::getGCellTileSize()
   std::vector<int> track_spacings = {getAverageTrackSpacing(2),
                                      getAverageTrackSpacing(3),
                                      getAverageTrackSpacing(4)};
-  std::ranges::sort(track_spacings);
+  std::sort(track_spacings.begin(), track_spacings.end());
 
   return track_spacings[1] * pitches_in_tile;
 }

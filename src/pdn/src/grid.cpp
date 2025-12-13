@@ -464,7 +464,7 @@ void Grid::report() const
     for (const auto& conn : connect_) {
       connect.push_back(conn.get());
     }
-    std::ranges::sort(connect, [](const Connect* l, const Connect* r) {
+    std::sort(connect.begin(), connect.end(), [](const Connect* l, const Connect* r) {
       int l_lower = l->getLowerLayer()->getRoutingLevel();
       int l_upper = l->getUpperLayer()->getRoutingLevel();
       int r_lower = r->getLowerLayer()->getRoutingLevel();
